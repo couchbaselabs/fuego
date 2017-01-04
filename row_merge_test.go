@@ -21,7 +21,6 @@ import (
 )
 
 func TestPartialMerge(t *testing.T) {
-
 	tests := []struct {
 		in  [][]byte
 		out uint64
@@ -32,7 +31,7 @@ func TestPartialMerge(t *testing.T) {
 		},
 	}
 
-	mo := &upsideDownMerge{}
+	mo := &fuegoMerge{}
 	for _, test := range tests {
 		curr := test.in[0]
 		for _, next := range test.in[1:] {

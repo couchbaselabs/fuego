@@ -18,7 +18,7 @@ import (
 	"encoding/binary"
 )
 
-var mergeOperator upsideDownMerge
+var mergeOperator fuegoMerge
 
 var dictionaryTermIncr []byte
 var dictionaryTermDecr []byte
@@ -31,9 +31,9 @@ func init() {
 	binary.LittleEndian.PutUint64(dictionaryTermDecr, uint64(negOne))
 }
 
-type upsideDownMerge struct{}
+type fuegoMerge struct{}
 
-func (m *upsideDownMerge) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
+func (m *fuegoMerge) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
 	// set up record based on key
 	dr, err := NewDictionaryRowK(key)
 	if err != nil {
@@ -63,7 +63,7 @@ func (m *upsideDownMerge) FullMerge(key, existingValue []byte, operands [][]byte
 	return dr.Value(), true
 }
 
-func (m *upsideDownMerge) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
+func (m *fuegoMerge) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
 	left := int64(binary.LittleEndian.Uint64(leftOperand))
 	right := int64(binary.LittleEndian.Uint64(rightOperand))
 	rv := make([]byte, 8)
@@ -71,6 +71,6 @@ func (m *upsideDownMerge) PartialMerge(key, leftOperand, rightOperand []byte) ([
 	return rv, true
 }
 
-func (m *upsideDownMerge) Name() string {
-	return "upsideDownMerge"
+func (m *fuegoMerge) Name() string {
+	return "fuegoMerge"
 }
