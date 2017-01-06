@@ -186,6 +186,9 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	if err == nil {
 		udc.m.Lock()
 		udc.docCount += docsAdded
+		if udc.docCountMax < udc.docCount {
+			udc.docCountMax = udc.docCount
+		}
 		udc.docCount -= docsDeleted
 		udc.m.Unlock()
 		atomic.AddUint64(&udc.stats.updates, numUpdates)

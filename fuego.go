@@ -40,7 +40,8 @@ type Fuego struct {
 
 	m sync.RWMutex
 	// fields protected by m
-	docCount uint64
+	docCount    uint64
+	docCountMax uint64 // Only grows - max docCount seen.
 
 	writeMutex sync.Mutex
 }
@@ -112,9 +113,10 @@ func (udc *Fuego) Reader() (index.IndexReader, error) {
 	udc.m.RLock()
 	defer udc.m.RUnlock()
 	return &IndexReader{
-		index:    udc,
-		kvreader: kvr,
-		docCount: udc.docCount,
+		index:       udc,
+		kvreader:    kvr,
+		docCount:    udc.docCount,
+		docCountMax: udc.docCountMax,
 	}, nil
 }
 
@@ -203,6 +205,9 @@ func (udc *Fuego) Update(doc *document.Document) (err error) {
 	if err == nil && backIndexRow == nil {
 		udc.m.Lock()
 		udc.docCount++
+		if udc.docCountMax < udc.docCount {
+			udc.docCountMax = udc.docCount
+		}
 		udc.m.Unlock()
 	}
 	atomic.AddUint64(&udc.stats.indexTime, uint64(time.Since(indexStart)))

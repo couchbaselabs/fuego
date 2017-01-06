@@ -21,9 +21,10 @@ import (
 )
 
 type IndexReader struct {
-	index    *Fuego
-	kvreader store.KVReader
-	docCount uint64
+	index       *Fuego
+	kvreader    store.KVReader
+	docCount    uint64
+	docCountMax uint64
 }
 
 func (i *IndexReader) TermFieldReader(term []byte, fieldName string,

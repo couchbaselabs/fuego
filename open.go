@@ -64,6 +64,9 @@ func (udc *Fuego) Open() (err error) {
 		// set doc count
 		udc.m.Lock()
 		udc.docCount, err = udc.countDocs(kvreader)
+		if udc.docCountMax < udc.docCount {
+			udc.docCountMax = udc.docCount
+		}
 		udc.m.Unlock()
 
 		err = kvreader.Close()
