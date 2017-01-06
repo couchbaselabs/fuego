@@ -24,13 +24,14 @@ import (
 )
 
 type FuegoTermFieldReader struct {
-	count       uint64
-	indexReader *IndexReader
-	iterator    store.KVIterator
-	term        []byte
-	tfrNext     *TermFrequencyRow
-	keyBuf      []byte
-	field       uint16
+	count              uint64
+	indexReader        *IndexReader
+	iterator           store.KVIterator
+	term               []byte
+	tfrNext            *TermFrequencyRow
+	keyBuf             []byte
+	field              uint16
+	includeTermVectors bool
 }
 
 func newFuegoTermFieldReader(indexReader *IndexReader, term []byte, field uint16, includeFreq, includeNorm, includeTermVectors bool) (*FuegoTermFieldReader, error) {
@@ -42,10 +43,11 @@ func newFuegoTermFieldReader(indexReader *IndexReader, term []byte, field uint16
 	if val == nil {
 		atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
 		return &FuegoTermFieldReader{
-			count:   0,
-			term:    term,
-			tfrNext: &TermFrequencyRow{},
-			field:   field,
+			count:              0,
+			term:               term,
+			tfrNext:            &TermFrequencyRow{},
+			field:              field,
+			includeTermVectors: includeTermVectors,
 		}, nil
 	}
 
@@ -59,11 +61,12 @@ func newFuegoTermFieldReader(indexReader *IndexReader, term []byte, field uint16
 
 	atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
 	return &FuegoTermFieldReader{
-		indexReader: indexReader,
-		iterator:    it,
-		count:       dictionaryRow.count,
-		term:        term,
-		field:       field,
+		indexReader:        indexReader,
+		iterator:           it,
+		count:              dictionaryRow.count,
+		term:               term,
+		field:              field,
+		includeTermVectors: includeTermVectors,
 	}, nil
 }
 
@@ -88,7 +91,7 @@ func (r *FuegoTermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.Term
 			if err != nil {
 				return nil, err
 			}
-			err = tfr.parseV(val)
+			err = tfr.parseV(val, r.includeTermVectors)
 			if err != nil {
 				return nil, err
 			}
@@ -125,7 +128,7 @@ func (r *FuegoTermFieldReader) Advance(docID index.IndexInternalID, preAlloced *
 			if err != nil {
 				return nil, err
 			}
-			err = tfr.parseV(val)
+			err = tfr.parseV(val, r.includeTermVectors)
 			if err != nil {
 				return nil, err
 			}
@@ -322,4 +325,25 @@ func (r *FuegoDocIDReader) nextOnly() bool {
 	}
 	// inidicate if we got to the end of the list
 	return r.onlyPos < len(r.only)
+}
+
+func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.TermFieldVector {
+	if len(in) <= 0 {
+		return nil
+	}
+
+	rv := make([]*index.TermFieldVector, len(in))
+
+	for i, tv := range in {
+		fieldName := udc.fieldCache.FieldIndexed(tv.field)
+		tfv := index.TermFieldVector{
+			Field:          fieldName,
+			ArrayPositions: tv.arrayPositions,
+			Pos:            tv.pos,
+			Start:          tv.start,
+			End:            tv.end,
+		}
+		rv[i] = &tfv
+	}
+	return rv
 }

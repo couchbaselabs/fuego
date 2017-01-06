@@ -21,7 +21,7 @@ import (
 	"github.com/blevesearch/bleve/index/store"
 )
 
-type FuegoFieldDict struct {
+type FieldDict struct {
 	indexReader *IndexReader
 	iterator    store.KVIterator
 	dictRow     *DictionaryRow
@@ -29,7 +29,7 @@ type FuegoFieldDict struct {
 	field       uint16
 }
 
-func newFuegoFieldDict(indexReader *IndexReader, field uint16, startTerm, endTerm []byte) (*FuegoFieldDict, error) {
+func newFieldDict(indexReader *IndexReader, field uint16, startTerm, endTerm []byte) (*FieldDict, error) {
 
 	startKey := NewDictionaryRow(startTerm, field, 0).Key()
 	if endTerm == nil {
@@ -41,7 +41,7 @@ func newFuegoFieldDict(indexReader *IndexReader, field uint16, startTerm, endTer
 
 	it := indexReader.kvreader.RangeIterator(startKey, endKey)
 
-	return &FuegoFieldDict{
+	return &FieldDict{
 		indexReader: indexReader,
 		iterator:    it,
 		dictRow:     &DictionaryRow{},   // Pre-alloced, reused row.
@@ -51,7 +51,7 @@ func newFuegoFieldDict(indexReader *IndexReader, field uint16, startTerm, endTer
 
 }
 
-func (r *FuegoFieldDict) Next() (*index.DictEntry, error) {
+func (r *FieldDict) Next() (*index.DictEntry, error) {
 	key, val, valid := r.iterator.Current()
 	if !valid {
 		return nil, nil
@@ -73,6 +73,6 @@ func (r *FuegoFieldDict) Next() (*index.DictEntry, error) {
 
 }
 
-func (r *FuegoFieldDict) Close() error {
+func (r *FieldDict) Close() error {
 	return r.iterator.Close()
 }

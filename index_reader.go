@@ -26,7 +26,8 @@ type IndexReader struct {
 	docCount uint64
 }
 
-func (i *IndexReader) TermFieldReader(term []byte, fieldName string, includeFreq, includeNorm, includeTermVectors bool) (index.TermFieldReader, error) {
+func (i *IndexReader) TermFieldReader(term []byte, fieldName string,
+	includeFreq, includeNorm, includeTermVectors bool) (index.TermFieldReader, error) {
 	fieldIndex, fieldExists := i.index.fieldCache.FieldNamed(fieldName, false)
 	if fieldExists {
 		return newFuegoTermFieldReader(i, term, uint16(fieldIndex), includeFreq, includeNorm, includeTermVectors)
@@ -41,9 +42,9 @@ func (i *IndexReader) FieldDict(fieldName string) (index.FieldDict, error) {
 func (i *IndexReader) FieldDictRange(fieldName string, startTerm []byte, endTerm []byte) (index.FieldDict, error) {
 	fieldIndex, fieldExists := i.index.fieldCache.FieldNamed(fieldName, false)
 	if fieldExists {
-		return newFuegoFieldDict(i, uint16(fieldIndex), startTerm, endTerm)
+		return newFieldDict(i, uint16(fieldIndex), startTerm, endTerm)
 	}
-	return newFuegoFieldDict(i, ^uint16(0), []byte{ByteSeparator}, []byte{})
+	return newFieldDict(i, ^uint16(0), []byte{ByteSeparator}, []byte{})
 }
 
 func (i *IndexReader) FieldDictPrefix(fieldName string, termPrefix []byte) (index.FieldDict, error) {
@@ -99,6 +100,20 @@ func (i *IndexReader) Document(id string) (doc *document.Document, err error) {
 		key, val, valid = it.Current()
 	}
 	return
+}
+
+func decodeFieldType(typ byte, name string, pos []uint64, value []byte) document.Field {
+	switch typ {
+	case 't':
+		return document.NewTextField(name, pos, value)
+	case 'n':
+		return document.NewNumericFieldFromBytes(name, pos, value)
+	case 'd':
+		return document.NewDateTimeFieldFromBytes(name, pos, value)
+	case 'b':
+		return document.NewBooleanFieldFromBytes(name, pos, value)
+	}
+	return nil
 }
 
 func (i *IndexReader) DocumentFieldTerms(id index.IndexInternalID, fields []string) (index.FieldTerms, error) {

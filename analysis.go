@@ -15,9 +15,13 @@
 package fuego
 
 import (
+	"math"
+
 	"github.com/blevesearch/bleve/analysis"
 	"github.com/blevesearch/bleve/document"
 	"github.com/blevesearch/bleve/index"
+
+	"github.com/golang/protobuf/proto"
 )
 
 func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
@@ -99,7 +103,8 @@ func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
 		includeTermVectors := fieldIncludeTermVectors[fieldIndex]
 
 		// encode this field
-		rv.Rows, backIndexTermEntries = udc.indexField(docIDBytes, includeTermVectors, fieldIndex, fieldLength, tokenFreqs, rv.Rows, backIndexTermEntries)
+		rv.Rows, backIndexTermEntries = udc.indexField(docIDBytes, includeTermVectors,
+			fieldIndex, fieldLength, tokenFreqs, rv.Rows, backIndexTermEntries)
 	}
 
 	// build the back index row
@@ -107,4 +112,99 @@ func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
 	rv.Rows = append(rv.Rows, backIndexRow)
 
 	return rv
+}
+
+func (udc *Fuego) indexField(docID []byte, includeTermVectors bool,
+	fieldIndex uint16, fieldLength int, tokenFreqs analysis.TokenFrequencies,
+	rows []index.IndexRow, backIndexTermEntries []*BackIndexTermEntry) (
+	[]index.IndexRow, []*BackIndexTermEntry) {
+	fieldNorm := float32(1.0 / math.Sqrt(float64(fieldLength)))
+
+	for k, tf := range tokenFreqs {
+		var termFreqRow *TermFrequencyRow
+		if includeTermVectors {
+			var tv []*TermVector
+			tv, rows = udc.termVectorsFromTokenFreq(fieldIndex, tf, rows)
+			termFreqRow = NewTermFrequencyRowWithTermVectors(tf.Term, fieldIndex, docID,
+				uint64(frequencyFromTokenFreq(tf)), fieldNorm, tv)
+		} else {
+			termFreqRow = NewTermFrequencyRow(tf.Term, fieldIndex, docID,
+				uint64(frequencyFromTokenFreq(tf)), fieldNorm)
+		}
+
+		// record the back index entry
+		backIndexTermEntry := BackIndexTermEntry{Term: proto.String(k), Field: proto.Uint32(uint32(fieldIndex))}
+		backIndexTermEntries = append(backIndexTermEntries, &backIndexTermEntry)
+
+		rows = append(rows, termFreqRow)
+	}
+
+	return rows, backIndexTermEntries
+}
+
+func (udc *Fuego) termVectorsFromTokenFreq(field uint16, tf *analysis.TokenFreq, rows []index.IndexRow) (
+	[]*TermVector, []index.IndexRow) {
+	rv := make([]*TermVector, len(tf.Locations))
+
+	for i, l := range tf.Locations {
+		var newFieldRow *FieldRow
+		fieldIndex := field
+		if l.Field != "" {
+			// lookup correct field
+			fieldIndex, newFieldRow = udc.fieldIndexOrNewRow(l.Field)
+			if newFieldRow != nil {
+				rows = append(rows, newFieldRow)
+			}
+		}
+		tv := TermVector{
+			field:          fieldIndex,
+			arrayPositions: l.ArrayPositions,
+			pos:            uint64(l.Position),
+			start:          uint64(l.Start),
+			end:            uint64(l.End),
+		}
+		rv[i] = &tv
+	}
+
+	return rv, rows
+}
+
+func frequencyFromTokenFreq(tf *analysis.TokenFreq) int {
+	return tf.Frequency()
+}
+
+func (udc *Fuego) fieldIndexOrNewRow(name string) (uint16, *FieldRow) {
+	index, existed := udc.fieldCache.FieldNamed(name, true)
+	if !existed {
+		return index, NewFieldRow(index, name)
+	}
+	return index, nil
+}
+
+func (udc *Fuego) storeField(docID []byte, field document.Field, fieldIndex uint16, rows []index.IndexRow,
+	backIndexStoredEntries []*BackIndexStoreEntry) ([]index.IndexRow, []*BackIndexStoreEntry) {
+	fieldType := encodeFieldType(field)
+	storedRow := NewStoredRow(docID, fieldIndex, field.ArrayPositions(), fieldType, field.Value())
+
+	// record the back index entry
+	backIndexStoredEntry := BackIndexStoreEntry{Field: proto.Uint32(uint32(fieldIndex)), ArrayPositions: field.ArrayPositions()}
+
+	return append(rows, storedRow), append(backIndexStoredEntries, &backIndexStoredEntry)
+}
+
+func encodeFieldType(f document.Field) byte {
+	fieldType := byte('x')
+	switch f.(type) {
+	case *document.TextField:
+		fieldType = 't'
+	case *document.NumericField:
+		fieldType = 'n'
+	case *document.DateTimeField:
+		fieldType = 'd'
+	case *document.BooleanField:
+		fieldType = 'b'
+	case *document.CompositeField:
+		fieldType = 'c'
+	}
+	return fieldType
 }
