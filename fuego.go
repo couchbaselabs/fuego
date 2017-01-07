@@ -59,52 +59,6 @@ func NewFuego(storeName string, storeConfig map[string]interface{},
 	return rv, nil
 }
 
-func (udc *Fuego) countDocs(kvreader store.KVReader) (count uint64, err error) {
-	it := kvreader.PrefixIterator([]byte{'b'})
-	defer func() {
-		if cerr := it.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}()
-
-	_, _, valid := it.Current()
-	for valid {
-		count++
-		it.Next()
-		_, _, valid = it.Current()
-	}
-
-	return
-}
-
-func (udc *Fuego) rowCount() (count uint64, err error) {
-	// start an isolated reader for use during the row count
-	kvreader, err := udc.store.Reader()
-	if err != nil {
-		return
-	}
-	defer func() {
-		if cerr := kvreader.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}()
-	it := kvreader.RangeIterator(nil, nil)
-	defer func() {
-		if cerr := it.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}()
-
-	_, _, valid := it.Current()
-	for valid {
-		count++
-		it.Next()
-		_, _, valid = it.Current()
-	}
-
-	return
-}
-
 func (udc *Fuego) Reader() (index.IndexReader, error) {
 	kvr, err := udc.store.Reader()
 	if err != nil {
@@ -343,4 +297,33 @@ func (udc *Fuego) DeleteInternal(key []byte) (err error) {
 	batch := writer.NewBatch()
 	batch.Delete(internalRow.Key())
 	return writer.ExecuteBatch(batch)
+}
+
+func (udc *Fuego) rowCount() (count uint64, err error) {
+	// start an isolated reader for use during the row count
+	kvreader, err := udc.store.Reader()
+	if err != nil {
+		return
+	}
+	defer func() {
+		if cerr := kvreader.Close(); err == nil && cerr != nil {
+			err = cerr
+		}
+	}()
+
+	it := kvreader.RangeIterator(nil, nil)
+	defer func() {
+		if cerr := it.Close(); err == nil && cerr != nil {
+			err = cerr
+		}
+	}()
+
+	_, _, valid := it.Current()
+	for valid {
+		count++
+		it.Next()
+		_, _, valid = it.Current()
+	}
+
+	return
 }

@@ -141,6 +141,24 @@ func (udc *Fuego) loadSchema(kvreader store.KVReader) (err error) {
 	return
 }
 
+func (udc *Fuego) countDocs(kvreader store.KVReader) (count uint64, err error) {
+	it := kvreader.PrefixIterator([]byte{'b'})
+	defer func() {
+		if cerr := it.Close(); err == nil && cerr != nil {
+			err = cerr
+		}
+	}()
+
+	_, _, valid := it.Current()
+	for valid {
+		count++
+		it.Next()
+		_, _, valid = it.Current()
+	}
+
+	return
+}
+
 func (udc *Fuego) Close() error {
 	return udc.store.Close()
 }
