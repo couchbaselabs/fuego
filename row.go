@@ -20,9 +20,9 @@ import (
 
 const ByteSeparator byte = 0xff
 
-type FuegoRowStream chan FuegoRow
+type KVRowStream chan KVRow
 
-type FuegoRow interface {
+type KVRow interface {
 	KeySize() int
 	KeyTo([]byte) (int, error)
 	Key() []byte
@@ -31,7 +31,7 @@ type FuegoRow interface {
 	ValueTo([]byte) (int, error)
 }
 
-func ParseFromKeyValue(key, value []byte) (FuegoRow, error) {
+func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 	if len(key) > 0 {
 		switch key[0] {
 		case 'v':

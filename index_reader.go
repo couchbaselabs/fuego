@@ -151,7 +151,7 @@ func (i *IndexReader) Fields() (fields []string, err error) {
 	}()
 	key, val, valid := it.Current()
 	for valid {
-		var row FuegoRow
+		var row KVRow
 		row, err = ParseFromKeyValue(key, val)
 		if err != nil {
 			fields = nil

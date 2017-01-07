@@ -24,7 +24,7 @@ import (
 
 func TestRows(t *testing.T) {
 	tests := []struct {
-		input  FuegoRow
+		input  KVRow
 		outKey []byte
 		outVal []byte
 	}{

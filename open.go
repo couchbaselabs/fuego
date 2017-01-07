@@ -97,7 +97,7 @@ func (udc *Fuego) Open() (err error) {
 
 func (udc *Fuego) init(kvwriter store.KVWriter) (err error) {
 	// version marker
-	rowsAll := [][]FuegoRow{
+	rowsAll := [][]KVRow{
 		{NewVersionRow(udc.version)},
 	}
 

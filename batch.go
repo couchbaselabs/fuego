@@ -109,13 +109,13 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	indexStart := time.Now()
 
 	// prepare a list of rows
-	var addRowsAll [][]FuegoRow
-	var updateRowsAll [][]FuegoRow
-	var deleteRowsAll [][]FuegoRow
+	var addRowsAll [][]KVRow
+	var updateRowsAll [][]KVRow
+	var deleteRowsAll [][]KVRow
 
 	// add the internal ops
-	var updateRows []FuegoRow
-	var deleteRows []FuegoRow
+	var updateRows []KVRow
+	var deleteRows []KVRow
 
 	for internalKey, internalValue := range batch.InternalOps {
 		if internalValue == nil {
@@ -202,7 +202,7 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 }
 
 func (udc *Fuego) batchRows(writer store.KVWriter,
-	addRowsAll [][]FuegoRow, updateRowsAll [][]FuegoRow, deleteRowsAll [][]FuegoRow) (err error) {
+	addRowsAll [][]KVRow, updateRowsAll [][]KVRow, deleteRowsAll [][]KVRow) (err error) {
 	dictionaryDeltas := make(map[string]int64)
 
 	// count up bytes needed for buffering.
@@ -348,10 +348,10 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 }
 
 func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, rows []index.IndexRow) (
-	addRows []FuegoRow, updateRows []FuegoRow, deleteRows []FuegoRow) {
-	addRows = make([]FuegoRow, 0, len(rows))
-	updateRows = make([]FuegoRow, 0, len(rows))
-	deleteRows = make([]FuegoRow, 0, len(rows))
+	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
+	addRows = make([]KVRow, 0, len(rows))
+	updateRows = make([]KVRow, 0, len(rows))
+	deleteRows = make([]KVRow, 0, len(rows))
 
 	existingTermKeys := make(map[string]bool)
 	for _, key := range backIndexRow.AllTermKeys() {

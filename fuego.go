@@ -186,9 +186,9 @@ func (udc *Fuego) Update(doc *document.Document) (err error) {
 	}()
 
 	// prepare a list of rows
-	var addRowsAll [][]FuegoRow
-	var updateRowsAll [][]FuegoRow
-	var deleteRowsAll [][]FuegoRow
+	var addRowsAll [][]KVRow
+	var updateRowsAll [][]KVRow
+	var deleteRowsAll [][]KVRow
 
 	addRows, updateRows, deleteRows := udc.mergeOldAndNew(backIndexRow, result.Rows)
 	if len(addRows) > 0 {
@@ -265,7 +265,7 @@ func (udc *Fuego) Delete(id string) (err error) {
 		}
 	}()
 
-	var deleteRowsAll [][]FuegoRow
+	var deleteRowsAll [][]KVRow
 
 	deleteRows := udc.deleteSingle(id, backIndexRow, nil)
 	if len(deleteRows) > 0 {
@@ -287,7 +287,7 @@ func (udc *Fuego) Delete(id string) (err error) {
 	return
 }
 
-func (udc *Fuego) deleteSingle(id string, backIndexRow *BackIndexRow, deleteRows []FuegoRow) []FuegoRow {
+func (udc *Fuego) deleteSingle(id string, backIndexRow *BackIndexRow, deleteRows []KVRow) []KVRow {
 	idBytes := []byte(id)
 
 	for _, backIndexEntry := range backIndexRow.termEntries {
