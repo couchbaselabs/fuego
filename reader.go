@@ -15,369 +15,207 @@
 package fuego
 
 import (
-	"bytes"
-	"sort"
-	"sync/atomic"
-
+	"github.com/blevesearch/bleve/document"
 	"github.com/blevesearch/bleve/index"
 	"github.com/blevesearch/bleve/index/store"
 )
 
-type TermFieldReader struct {
-	count              uint64
-	indexReader        *IndexReader
-	iterator           store.KVIterator
-	term               []byte
-	tfrNext            *TermFrequencyRow
-	keyBuf             []byte
-	field              uint16
-	includeTermVectors bool
+type IndexReader struct {
+	index       *Fuego
+	kvreader    store.KVReader
+	docCount    uint64
+	docCountMax uint64
 }
 
-func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
-	includeFreq, includeNorm, includeTermVectors bool) (*TermFieldReader, error) {
-	dictionaryRow := NewDictionaryRow(term, field, 0)
-	val, err := indexReader.kvreader.Get(dictionaryRow.Key())
-	if err != nil {
-		return nil, err
+func (i *IndexReader) TermFieldReader(term []byte, fieldName string,
+	includeFreq, includeNorm, includeTermVectors bool) (index.TermFieldReader, error) {
+	fieldIndex, fieldExists := i.index.fieldCache.FieldNamed(fieldName, false)
+	if fieldExists {
+		return newTermFieldReader(i, term, uint16(fieldIndex),
+			includeFreq, includeNorm, includeTermVectors)
 	}
 
-	if val == nil {
-		atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
-		return &TermFieldReader{
-			count:              0,
-			term:               term,
-			tfrNext:            &TermFrequencyRow{},
-			field:              field,
-			includeTermVectors: includeTermVectors,
-		}, nil
-	}
-
-	err = dictionaryRow.parseDictionaryV(val)
-	if err != nil {
-		return nil, err
-	}
-
-	tfr := NewTermFrequencyRow(term, field, []byte{}, 0, 0)
-	it := indexReader.kvreader.PrefixIterator(tfr.Key())
-
-	atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
-
-	return &TermFieldReader{
-		indexReader:        indexReader,
-		iterator:           it,
-		count:              dictionaryRow.count,
-		term:               term,
-		field:              field,
-		includeTermVectors: includeTermVectors,
-	}, nil
+	return newTermFieldReader(i, []byte{ByteSeparator}, ^uint16(0),
+		includeFreq, includeNorm, includeTermVectors)
 }
 
-func (r *TermFieldReader) Count() uint64 {
-	return r.count
+func (i *IndexReader) FieldDict(fieldName string) (index.FieldDict, error) {
+	return i.FieldDictRange(fieldName, nil, nil)
 }
 
-func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
-	if r.iterator != nil {
-		// We treat tfrNext also like an initialization flag, which
-		// tells us whether we need to invoke the underlying
-		// iterator.Next().  The first time, don't call iterator.Next().
-		if r.tfrNext != nil {
-			r.iterator.Next()
-		} else {
-			r.tfrNext = &TermFrequencyRow{}
+func (i *IndexReader) FieldDictRange(fieldName string, startTerm []byte, endTerm []byte) (
+	index.FieldDict, error) {
+	fieldIndex, fieldExists := i.index.fieldCache.FieldNamed(fieldName, false)
+	if fieldExists {
+		return newFieldDict(i, uint16(fieldIndex), startTerm, endTerm)
+	}
+
+	return newFieldDict(i, ^uint16(0), []byte{ByteSeparator}, []byte{})
+}
+
+func (i *IndexReader) FieldDictPrefix(fieldName string, termPrefix []byte) (
+	index.FieldDict, error) {
+	return i.FieldDictRange(fieldName, termPrefix, termPrefix)
+}
+
+func (i *IndexReader) DocIDReaderAll() (index.DocIDReader, error) {
+	return newDocIDReader(i)
+}
+
+func (i *IndexReader) DocIDReaderOnly(ids []string) (index.DocIDReader, error) {
+	return newDocIDReaderOnly(i, ids)
+}
+
+func (i *IndexReader) Document(id string) (doc *document.Document, err error) {
+	// first hit the back index to confirm doc exists
+	var backIndexRow *BackIndexRow
+	backIndexRow, err = backIndexRowForDoc(i.kvreader, []byte(id))
+	if err != nil || backIndexRow == nil {
+		return
+	}
+
+	doc = document.NewDocument(id)
+	storedRow := NewStoredRow([]byte(id), 0, []uint64{}, 'x', nil)
+	storedRowScanPrefix := storedRow.ScanPrefixForDoc()
+
+	it := i.kvreader.PrefixIterator(storedRowScanPrefix)
+	defer func() {
+		if cerr := it.Close(); err == nil && cerr != nil {
+			err = cerr
 		}
+	}()
 
-		key, val, valid := r.iterator.Current()
-		if valid {
-			tfr := r.tfrNext
+	key, val, valid := it.Current()
+	for valid {
+		safeVal := make([]byte, len(val))
+		copy(safeVal, val)
 
-			err := tfr.parseKDoc(key, r.term)
-			if err != nil {
-				return nil, err
-			}
-
-			err = tfr.parseV(val, r.includeTermVectors)
-			if err != nil {
-				return nil, err
-			}
-
-			rv := preAlloced
-			if rv == nil {
-				rv = &index.TermFieldDoc{}
-			}
-			rv.ID = append(rv.ID, tfr.doc...)
-			rv.Freq = tfr.freq
-			rv.Norm = float64(tfr.norm)
-			if tfr.vectors != nil {
-				rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tfr.vectors)
-			}
-
-			return rv, nil
-		}
-	}
-	return nil, nil
-}
-
-func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index.TermFieldDoc) (
-	rv *index.TermFieldDoc, err error) {
-	if r.iterator != nil {
-		if r.tfrNext == nil {
-			r.tfrNext = &TermFrequencyRow{}
-		}
-
-		tfr := InitTermFrequencyRow(r.tfrNext, r.term, r.field, docID, 0, 0)
-		r.keyBuf, err = tfr.KeyAppendTo(r.keyBuf[:0])
+		var row *StoredRow
+		row, err = NewStoredRowKV(key, safeVal)
 		if err != nil {
-			return nil, err
+			doc = nil
+			return
 		}
 
-		r.iterator.Seek(r.keyBuf)
+		if row != nil {
+			fieldName := i.index.fieldCache.FieldIndexed(row.field)
 
-		key, val, valid := r.iterator.Current()
-		if valid {
-			err := tfr.parseKDoc(key, r.term)
-			if err != nil {
-				return nil, err
+			field := decodeFieldType(row.typ, fieldName, row.arrayPositions, row.value)
+			if field != nil {
+				doc.AddField(field)
 			}
-
-			err = tfr.parseV(val, r.includeTermVectors)
-			if err != nil {
-				return nil, err
-			}
-
-			rv = preAlloced
-			if rv == nil {
-				rv = &index.TermFieldDoc{}
-			}
-			rv.ID = append(rv.ID, tfr.doc...)
-			rv.Freq = tfr.freq
-			rv.Norm = float64(tfr.norm)
-
-			if tfr.vectors != nil {
-				rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tfr.vectors)
-			}
-
-			return rv, nil
 		}
+
+		it.Next()
+		key, val, valid = it.Current()
 	}
-	return nil, nil
+
+	return
 }
 
-func (r *TermFieldReader) Close() error {
-	if r.indexReader != nil {
-		atomic.AddUint64(&r.indexReader.index.stats.termSearchersFinished, uint64(1))
-	}
-
-	if r.iterator != nil {
-		return r.iterator.Close()
+func decodeFieldType(typ byte, name string, pos []uint64, value []byte) document.Field {
+	switch typ {
+	case 't':
+		return document.NewTextField(name, pos, value)
+	case 'n':
+		return document.NewNumericFieldFromBytes(name, pos, value)
+	case 'd':
+		return document.NewDateTimeFieldFromBytes(name, pos, value)
+	case 'b':
+		return document.NewBooleanFieldFromBytes(name, pos, value)
 	}
 
 	return nil
 }
 
-type DocIDReader struct {
-	indexReader *IndexReader
-	iterator    store.KVIterator
-	only        []string
-	onlyPos     int
-	onlyMode    bool
-}
-
-func newDocIDReader(indexReader *IndexReader) (*DocIDReader, error) {
-	startBytes := []byte{0x0}
-	endBytes := []byte{0xff}
-
-	bisr := NewBackIndexRow(startBytes, nil, nil)
-	bier := NewBackIndexRow(endBytes, nil, nil)
-	it := indexReader.kvreader.RangeIterator(bisr.Key(), bier.Key())
-
-	return &DocIDReader{
-		indexReader: indexReader,
-		iterator:    it,
-	}, nil
-}
-
-func newDocIDReaderOnly(indexReader *IndexReader, ids []string) (*DocIDReader, error) {
-	// ensure ids are sorted
-	sort.Strings(ids)
-
-	startBytes := []byte{0x0}
-	if len(ids) > 0 {
-		startBytes = []byte(ids[0])
+func (i *IndexReader) DocumentFieldTerms(id index.IndexInternalID, fields []string) (
+	index.FieldTerms, error) {
+	back, err := backIndexRowForDoc(i.kvreader, id)
+	if err != nil || back == nil {
+		return nil, err
 	}
 
-	endBytes := []byte{0xff}
-	if len(ids) > 0 {
-		endBytes = incrementBytes([]byte(ids[len(ids)-1]))
-	}
+	rv := make(index.FieldTerms, len(fields))
+	fieldsMap := make(map[uint16]string, len(fields))
 
-	bisr := NewBackIndexRow(startBytes, nil, nil)
-	bier := NewBackIndexRow(endBytes, nil, nil)
-	it := indexReader.kvreader.RangeIterator(bisr.Key(), bier.Key())
-
-	return &DocIDReader{
-		indexReader: indexReader,
-		iterator:    it,
-		only:        ids,
-		onlyMode:    true,
-	}, nil
-}
-
-func (r *DocIDReader) Next() (index.IndexInternalID, error) {
-	key, val, valid := r.iterator.Current()
-
-	if r.onlyMode {
-		var rv index.IndexInternalID
-		for valid && r.onlyPos < len(r.only) {
-			br, err := NewBackIndexRowKV(key, val)
-			if err != nil {
-				return nil, err
-			}
-
-			if !bytes.Equal(br.doc, []byte(r.only[r.onlyPos])) {
-				ok := r.nextOnly()
-				if !ok {
-					return nil, nil
-				}
-
-				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
-				key, val, valid = r.iterator.Current()
-
-				continue
-			} else {
-				rv = append([]byte(nil), br.doc...)
-				break
-			}
+	for _, f := range fields {
+		id, ok := i.index.fieldCache.FieldNamed(f, false)
+		if ok {
+			fieldsMap[id] = f
 		}
+	}
 
-		if valid && r.onlyPos < len(r.only) {
-			ok := r.nextOnly()
+	for _, entry := range back.termEntries {
+		if field, ok := fieldsMap[uint16(*entry.Field)]; ok {
+			rv[field] = append(rv[field], *entry.Term)
+		}
+	}
+
+	return rv, nil
+}
+
+func (i *IndexReader) Fields() (fields []string, err error) {
+	fields = make([]string, 0)
+
+	it := i.kvreader.PrefixIterator([]byte{'f'})
+	defer func() {
+		if cerr := it.Close(); err == nil && cerr != nil {
+			err = cerr
+		}
+	}()
+
+	key, val, valid := it.Current()
+	for valid {
+		var row KVRow
+		row, err = ParseFromKeyValue(key, val)
+		if err != nil {
+			fields = nil
+			return
+		}
+		if row != nil {
+			fieldRow, ok := row.(*FieldRow)
 			if ok {
-				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
-			}
-
-			return rv, nil
-		}
-
-	} else {
-		if valid {
-			br, err := NewBackIndexRowKV(key, val)
-			if err != nil {
-				return nil, err
-			}
-
-			rv := append([]byte(nil), br.doc...)
-			r.iterator.Next()
-			return rv, nil
-		}
-	}
-	return nil, nil
-}
-
-func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalID, error) {
-	if r.onlyMode {
-		r.onlyPos = sort.SearchStrings(r.only, string(docID))
-		if r.onlyPos >= len(r.only) {
-			// advanced to key after our last only key
-			return nil, nil
-		}
-
-		r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
-		key, val, valid := r.iterator.Current()
-
-		var rv index.IndexInternalID
-		for valid && r.onlyPos < len(r.only) {
-			br, err := NewBackIndexRowKV(key, val)
-			if err != nil {
-				return nil, err
-			}
-
-			if !bytes.Equal(br.doc, []byte(r.only[r.onlyPos])) {
-				// the only key we seek'd to didn't exist
-				// now look for the closest key that did exist in only
-				r.onlyPos = sort.SearchStrings(r.only, string(br.doc))
-				if r.onlyPos >= len(r.only) {
-					// advanced to key after our last only key
-					return nil, nil
-				}
-
-				// now seek to this new only key
-				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
-				key, val, valid = r.iterator.Current()
-				continue
-			} else {
-				rv = append([]byte(nil), br.doc...)
-				break
+				fields = append(fields, fieldRow.name)
 			}
 		}
-		if valid && r.onlyPos < len(r.only) {
-			ok := r.nextOnly()
-			if ok {
-				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
-			}
 
-			return rv, nil
-		}
-	} else {
-		bir := NewBackIndexRow(docID, nil, nil)
-		r.iterator.Seek(bir.Key())
-
-		key, val, valid := r.iterator.Current()
-		if valid {
-			br, err := NewBackIndexRowKV(key, val)
-			if err != nil {
-				return nil, err
-			}
-
-			rv := append([]byte(nil), br.doc...)
-			r.iterator.Next()
-
-			return rv, nil
-		}
+		it.Next()
+		key, val, valid = it.Current()
 	}
 
-	return nil, nil
+	return
 }
 
-func (r *DocIDReader) Close() error {
-	return r.iterator.Close()
+func (i *IndexReader) GetInternal(key []byte) ([]byte, error) {
+	internalRow := NewInternalRow(key, nil)
+	return i.kvreader.Get(internalRow.Key())
 }
 
-// move the r.only pos forward one, skipping duplicates
-// return true if there is more data, or false if we got to the end of the list
-func (r *DocIDReader) nextOnly() bool {
-	// advance 1 position, until we see a different key
-	// it's already sorted, so this skips duplicates
-	start := r.onlyPos
-
-	r.onlyPos++
-	for r.onlyPos < len(r.only) && r.only[r.onlyPos] == r.only[start] {
-		start = r.onlyPos
-		r.onlyPos++
-	}
-
-	// indicate if we got to the end of the list
-	return r.onlyPos < len(r.only)
+func (i *IndexReader) DocCount() (uint64, error) {
+	return i.docCount, nil
 }
 
-func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.TermFieldVector {
-	if len(in) <= 0 {
-		return nil
-	}
+func (i *IndexReader) Close() error {
+	return i.kvreader.Close()
+}
 
-	rv := make([]*index.TermFieldVector, len(in))
+func (i *IndexReader) ExternalID(id index.IndexInternalID) (string, error) {
+	return string(id), nil
+}
 
-	for i, tv := range in {
-		fieldName := udc.fieldCache.FieldIndexed(tv.field)
-		tfv := index.TermFieldVector{
-			Field:          fieldName,
-			ArrayPositions: tv.arrayPositions,
-			Pos:            tv.pos,
-			Start:          tv.start,
-			End:            tv.end,
+func (i *IndexReader) InternalID(id string) (index.IndexInternalID, error) {
+	return index.IndexInternalID(id), nil
+}
+
+func incrementBytes(in []byte) []byte {
+	rv := make([]byte, len(in))
+	copy(rv, in)
+
+	for i := len(rv) - 1; i >= 0; i-- {
+		rv[i] = rv[i] + 1
+		if rv[i] != 0 {
+			break // didn't overflow, so stop
 		}
-		rv[i] = &tfv
 	}
 
 	return rv
