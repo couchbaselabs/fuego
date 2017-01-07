@@ -31,9 +31,11 @@ func (i *IndexReader) TermFieldReader(term []byte, fieldName string,
 	includeFreq, includeNorm, includeTermVectors bool) (index.TermFieldReader, error) {
 	fieldIndex, fieldExists := i.index.fieldCache.FieldNamed(fieldName, false)
 	if fieldExists {
-		return newFuegoTermFieldReader(i, term, uint16(fieldIndex), includeFreq, includeNorm, includeTermVectors)
+		return newTermFieldReader(i, term, uint16(fieldIndex),
+			includeFreq, includeNorm, includeTermVectors)
 	}
-	return newFuegoTermFieldReader(i, []byte{ByteSeparator}, ^uint16(0), includeFreq, includeNorm, includeTermVectors)
+	return newTermFieldReader(i, []byte{ByteSeparator}, ^uint16(0),
+		includeFreq, includeNorm, includeTermVectors)
 }
 
 func (i *IndexReader) FieldDict(fieldName string) (index.FieldDict, error) {
@@ -53,11 +55,11 @@ func (i *IndexReader) FieldDictPrefix(fieldName string, termPrefix []byte) (inde
 }
 
 func (i *IndexReader) DocIDReaderAll() (index.DocIDReader, error) {
-	return newFuegoDocIDReader(i)
+	return newDocIDReader(i)
 }
 
 func (i *IndexReader) DocIDReaderOnly(ids []string) (index.DocIDReader, error) {
-	return newFuegoDocIDReaderOnly(i, ids)
+	return newDocIDReaderOnly(i, ids)
 }
 
 func (i *IndexReader) Document(id string) (doc *document.Document, err error) {
@@ -117,7 +119,8 @@ func decodeFieldType(typ byte, name string, pos []uint64, value []byte) document
 	return nil
 }
 
-func (i *IndexReader) DocumentFieldTerms(id index.IndexInternalID, fields []string) (index.FieldTerms, error) {
+func (i *IndexReader) DocumentFieldTerms(id index.IndexInternalID, fields []string) (
+	index.FieldTerms, error) {
 	back, err := backIndexRowForDoc(i.kvreader, id)
 	if err != nil {
 		return nil, err

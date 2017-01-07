@@ -23,7 +23,7 @@ import (
 	"github.com/blevesearch/bleve/index/store"
 )
 
-type FuegoTermFieldReader struct {
+type TermFieldReader struct {
 	count              uint64
 	indexReader        *IndexReader
 	iterator           store.KVIterator
@@ -34,7 +34,7 @@ type FuegoTermFieldReader struct {
 	includeTermVectors bool
 }
 
-func newFuegoTermFieldReader(indexReader *IndexReader, term []byte, field uint16, includeFreq, includeNorm, includeTermVectors bool) (*FuegoTermFieldReader, error) {
+func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16, includeFreq, includeNorm, includeTermVectors bool) (*TermFieldReader, error) {
 	dictionaryRow := NewDictionaryRow(term, field, 0)
 	val, err := indexReader.kvreader.Get(dictionaryRow.Key())
 	if err != nil {
@@ -42,7 +42,7 @@ func newFuegoTermFieldReader(indexReader *IndexReader, term []byte, field uint16
 	}
 	if val == nil {
 		atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
-		return &FuegoTermFieldReader{
+		return &TermFieldReader{
 			count:              0,
 			term:               term,
 			tfrNext:            &TermFrequencyRow{},
@@ -60,7 +60,7 @@ func newFuegoTermFieldReader(indexReader *IndexReader, term []byte, field uint16
 	it := indexReader.kvreader.PrefixIterator(tfr.Key())
 
 	atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
-	return &FuegoTermFieldReader{
+	return &TermFieldReader{
 		indexReader:        indexReader,
 		iterator:           it,
 		count:              dictionaryRow.count,
@@ -70,11 +70,11 @@ func newFuegoTermFieldReader(indexReader *IndexReader, term []byte, field uint16
 	}, nil
 }
 
-func (r *FuegoTermFieldReader) Count() uint64 {
+func (r *TermFieldReader) Count() uint64 {
 	return r.count
 }
 
-func (r *FuegoTermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
+func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
 	if r.iterator != nil {
 		// We treat tfrNext also like an initialization flag, which
 		// tells us whether we need to invoke the underlying
@@ -111,7 +111,7 @@ func (r *FuegoTermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.Term
 	return nil, nil
 }
 
-func (r *FuegoTermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index.TermFieldDoc) (rv *index.TermFieldDoc, err error) {
+func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index.TermFieldDoc) (rv *index.TermFieldDoc, err error) {
 	if r.iterator != nil {
 		if r.tfrNext == nil {
 			r.tfrNext = &TermFrequencyRow{}
@@ -148,7 +148,7 @@ func (r *FuegoTermFieldReader) Advance(docID index.IndexInternalID, preAlloced *
 	return nil, nil
 }
 
-func (r *FuegoTermFieldReader) Close() error {
+func (r *TermFieldReader) Close() error {
 	if r.indexReader != nil {
 		atomic.AddUint64(&r.indexReader.index.stats.termSearchersFinished, uint64(1))
 	}
@@ -158,7 +158,7 @@ func (r *FuegoTermFieldReader) Close() error {
 	return nil
 }
 
-type FuegoDocIDReader struct {
+type DocIDReader struct {
 	indexReader *IndexReader
 	iterator    store.KVIterator
 	only        []string
@@ -166,7 +166,7 @@ type FuegoDocIDReader struct {
 	onlyMode    bool
 }
 
-func newFuegoDocIDReader(indexReader *IndexReader) (*FuegoDocIDReader, error) {
+func newDocIDReader(indexReader *IndexReader) (*DocIDReader, error) {
 
 	startBytes := []byte{0x0}
 	endBytes := []byte{0xff}
@@ -175,13 +175,13 @@ func newFuegoDocIDReader(indexReader *IndexReader) (*FuegoDocIDReader, error) {
 	bier := NewBackIndexRow(endBytes, nil, nil)
 	it := indexReader.kvreader.RangeIterator(bisr.Key(), bier.Key())
 
-	return &FuegoDocIDReader{
+	return &DocIDReader{
 		indexReader: indexReader,
 		iterator:    it,
 	}, nil
 }
 
-func newFuegoDocIDReaderOnly(indexReader *IndexReader, ids []string) (*FuegoDocIDReader, error) {
+func newDocIDReaderOnly(indexReader *IndexReader, ids []string) (*DocIDReader, error) {
 	// ensure ids are sorted
 	sort.Strings(ids)
 	startBytes := []byte{0x0}
@@ -196,7 +196,7 @@ func newFuegoDocIDReaderOnly(indexReader *IndexReader, ids []string) (*FuegoDocI
 	bier := NewBackIndexRow(endBytes, nil, nil)
 	it := indexReader.kvreader.RangeIterator(bisr.Key(), bier.Key())
 
-	return &FuegoDocIDReader{
+	return &DocIDReader{
 		indexReader: indexReader,
 		iterator:    it,
 		only:        ids,
@@ -204,7 +204,7 @@ func newFuegoDocIDReaderOnly(indexReader *IndexReader, ids []string) (*FuegoDocI
 	}, nil
 }
 
-func (r *FuegoDocIDReader) Next() (index.IndexInternalID, error) {
+func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 	key, val, valid := r.iterator.Current()
 
 	if r.onlyMode {
@@ -249,7 +249,7 @@ func (r *FuegoDocIDReader) Next() (index.IndexInternalID, error) {
 	return nil, nil
 }
 
-func (r *FuegoDocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalID, error) {
+func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalID, error) {
 
 	if r.onlyMode {
 		r.onlyPos = sort.SearchStrings(r.only, string(docID))
@@ -307,13 +307,13 @@ func (r *FuegoDocIDReader) Advance(docID index.IndexInternalID) (index.IndexInte
 	return nil, nil
 }
 
-func (r *FuegoDocIDReader) Close() error {
+func (r *DocIDReader) Close() error {
 	return r.iterator.Close()
 }
 
 // move the r.only pos forward one, skipping duplicates
 // return true if there is more data, or false if we got to the end of the list
-func (r *FuegoDocIDReader) nextOnly() bool {
+func (r *DocIDReader) nextOnly() bool {
 
 	// advance 1 position, until we see a different key
 	//   it's already sorted, so this skips duplicates
