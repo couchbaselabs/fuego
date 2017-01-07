@@ -81,7 +81,7 @@ func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 				return nil, err
 			}
 
-			if !bytes.Equal(br.doc, []byte(r.only[r.onlyPos])) {
+			if !bytes.Equal(br.docID, []byte(r.only[r.onlyPos])) {
 				ok := r.nextOnly()
 				if !ok {
 					return nil, nil
@@ -92,7 +92,7 @@ func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 
 				continue
 			} else {
-				rv = append([]byte(nil), br.doc...)
+				rv = append([]byte(nil), br.docID...)
 				break
 			}
 		}
@@ -113,7 +113,7 @@ func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 				return nil, err
 			}
 
-			rv := append([]byte(nil), br.doc...)
+			rv := append([]byte(nil), br.docID...)
 			r.iterator.Next()
 			return rv, nil
 		}
@@ -139,10 +139,10 @@ func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalI
 				return nil, err
 			}
 
-			if !bytes.Equal(br.doc, []byte(r.only[r.onlyPos])) {
+			if !bytes.Equal(br.docID, []byte(r.only[r.onlyPos])) {
 				// the only key we seek'd to didn't exist
 				// now look for the closest key that did exist in only
-				r.onlyPos = sort.SearchStrings(r.only, string(br.doc))
+				r.onlyPos = sort.SearchStrings(r.only, string(br.docID))
 				if r.onlyPos >= len(r.only) {
 					// advanced to key after our last only key
 					return nil, nil
@@ -153,7 +153,7 @@ func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalI
 				key, val, valid = r.iterator.Current()
 				continue
 			} else {
-				rv = append([]byte(nil), br.doc...)
+				rv = append([]byte(nil), br.docID...)
 				break
 			}
 		}
@@ -176,9 +176,8 @@ func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalI
 				return nil, err
 			}
 
-			rv := append([]byte(nil), br.doc...)
+			rv := append([]byte(nil), br.docID...)
 			r.iterator.Next()
-
 			return rv, nil
 		}
 	}

@@ -19,11 +19,14 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/blevesearch/bleve/index"
+	"github.com/blevesearch/bleve/index/store"
+
 	"github.com/golang/protobuf/proto"
 )
 
 type BackIndexRow struct {
-	doc           []byte
+	docID         []byte
 	termEntries   []*BackIndexTermEntry
 	storedEntries []*BackIndexStoreEntry
 }
@@ -32,12 +35,15 @@ func (br *BackIndexRow) AllTermKeys() [][]byte {
 	if br == nil {
 		return nil
 	}
+
 	rv := make([][]byte, len(br.termEntries))
+
 	for i, termEntry := range br.termEntries {
 		termRow := NewTermFrequencyRow([]byte(termEntry.GetTerm()),
-			uint16(termEntry.GetField()), br.doc, 0, 0)
+			uint16(termEntry.GetField()), br.docID, 0, 0)
 		rv[i] = termRow.Key()
 	}
+
 	return rv
 }
 
@@ -45,11 +51,15 @@ func (br *BackIndexRow) AllStoredKeys() [][]byte {
 	if br == nil {
 		return nil
 	}
+
 	rv := make([][]byte, len(br.storedEntries))
+
 	for i, storedEntry := range br.storedEntries {
-		storedRow := NewStoredRow(br.doc, uint16(storedEntry.GetField()), storedEntry.GetArrayPositions(), 'x', []byte{})
+		storedRow := NewStoredRow(br.docID, uint16(storedEntry.GetField()),
+			storedEntry.GetArrayPositions(), 'x', []byte{})
 		rv[i] = storedRow.Key()
 	}
+
 	return rv
 }
 
@@ -60,12 +70,12 @@ func (br *BackIndexRow) Key() []byte {
 }
 
 func (br *BackIndexRow) KeySize() int {
-	return len(br.doc) + 1
+	return len(br.docID) + 1
 }
 
 func (br *BackIndexRow) KeyTo(buf []byte) (int, error) {
 	buf[0] = 'b'
-	used := copy(buf[1:], br.doc)
+	used := copy(buf[1:], br.docID)
 	return used + 1, nil
 }
 
@@ -92,12 +102,14 @@ func (br *BackIndexRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (br *BackIndexRow) String() string {
-	return fmt.Sprintf("Backindex DocId: `%s` Term Entries: %v, Stored Entries: %v", string(br.doc), br.termEntries, br.storedEntries)
+	return fmt.Sprintf("BackIndex docID: `%s`, termEntries: %v, storedEntries: %v",
+		string(br.docID), br.termEntries, br.storedEntries)
 }
 
-func NewBackIndexRow(docID []byte, entries []*BackIndexTermEntry, storedFields []*BackIndexStoreEntry) *BackIndexRow {
+func NewBackIndexRow(docID []byte,
+	entries []*BackIndexTermEntry, storedFields []*BackIndexStoreEntry) *BackIndexRow {
 	return &BackIndexRow{
-		doc:           docID,
+		docID:         docID,
 		termEntries:   entries,
 		storedEntries: storedFields,
 	}
@@ -112,14 +124,14 @@ func NewBackIndexRowKV(key, value []byte) (*BackIndexRow, error) {
 		return nil, err
 	}
 
-	rv.doc, err = buf.ReadBytes(ByteSeparator)
-	if err == io.EOF && len(rv.doc) < 1 {
-		err = fmt.Errorf("invalid doc length 0 - % x", key)
+	rv.docID, err = buf.ReadBytes(ByteSeparator)
+	if err == io.EOF && len(rv.docID) < 1 {
+		err = fmt.Errorf("invalid docID length 0 - % x", key)
 	}
 	if err != nil && err != io.EOF {
 		return nil, err
 	} else if err == nil {
-		rv.doc = rv.doc[:len(rv.doc)-1] // trim off separator byte
+		rv.docID = rv.docID[:len(rv.docID)-1] // trim off separator byte
 	}
 
 	var birv BackIndexRowValue
@@ -127,8 +139,42 @@ func NewBackIndexRowKV(key, value []byte) (*BackIndexRow, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	rv.termEntries = birv.TermEntries
 	rv.storedEntries = birv.StoredEntries
 
 	return &rv, nil
+}
+
+func backIndexRowForDoc(kvreader store.KVReader, docID index.IndexInternalID) (*BackIndexRow, error) {
+	// use a temporary row structure to build key
+	tempRow := &BackIndexRow{
+		docID: docID,
+	}
+
+	keyBuf := GetRowBuffer()
+	if tempRow.KeySize() > len(keyBuf) {
+		keyBuf = make([]byte, 2*tempRow.KeySize())
+	}
+	defer PutRowBuffer(keyBuf)
+
+	keySize, err := tempRow.KeyTo(keyBuf)
+	if err != nil {
+		return nil, err
+	}
+
+	value, err := kvreader.Get(keyBuf[:keySize])
+	if err != nil {
+		return nil, err
+	}
+	if value == nil {
+		return nil, nil
+	}
+
+	backIndexRow, err := NewBackIndexRowKV(keyBuf[:keySize], value)
+	if err != nil {
+		return nil, err
+	}
+
+	return backIndexRow, nil
 }

@@ -31,7 +31,7 @@ const RowBufferSize = 4 * 1024
 
 var VersionKey = []byte{'v'}
 
-const Version uint8 = 5
+const Version uint8 = 6
 
 var IncompatibleVersion = fmt.Errorf("incompatible version, %d is supported", Version)
 

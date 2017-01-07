@@ -307,7 +307,7 @@ func TestCrashBadBackIndexRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(br.doc) != "a" {
+	if string(br.docID) != "a" {
 		t.Fatal(err)
 	}
 }

@@ -186,11 +186,10 @@ func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.Ter
 		return nil
 	}
 
+	fieldName := udc.fieldCache.FieldIndexed(in[0].field)
+
 	rv := make([]*index.TermFieldVector, len(in))
-
 	for i, tv := range in {
-		fieldName := udc.fieldCache.FieldIndexed(tv.field)
-
 		rv[i] = &index.TermFieldVector{
 			Field:          fieldName,
 			ArrayPositions: tv.arrayPositions,

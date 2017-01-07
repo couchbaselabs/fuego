@@ -153,7 +153,7 @@ func (tfr *TermFrequencyRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (tfr *TermFrequencyRow) String() string {
-	return fmt.Sprintf("Term: `%s` Field: %d DocId: `%s` Frequency: %d Norm: %f Vectors: %v",
+	return fmt.Sprintf("Term: `%s` Field: %d DocID: `%s` Frequency: %d Norm: %f Vectors: %v",
 		string(tfr.term), tfr.field, string(tfr.doc), tfr.freq, tfr.norm, tfr.vectors)
 }
 
