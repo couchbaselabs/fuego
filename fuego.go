@@ -89,7 +89,9 @@ func (udc *Fuego) Advanced() (store.KVStore, error) {
 func (udc *Fuego) Update(doc *document.Document) (err error) {
 	// do analysis before acquiring write lock
 	analysisStart := time.Now()
+
 	numPlainTextBytes := doc.NumPlainTextBytes()
+
 	resultChan := make(chan *index.AnalysisResult)
 	aw := index.NewAnalysisWork(udc, doc, resultChan)
 
@@ -128,6 +130,7 @@ func (udc *Fuego) Update(doc *document.Document) (err error) {
 
 	// start a writer for this update
 	indexStart := time.Now()
+
 	var kvwriter store.KVWriter
 	kvwriter, err = udc.store.Writer()
 	if err != nil {
@@ -164,6 +167,7 @@ func (udc *Fuego) Update(doc *document.Document) (err error) {
 		}
 		udc.m.Unlock()
 	}
+
 	atomic.AddUint64(&udc.stats.indexTime, uint64(time.Since(indexStart)))
 	if err == nil {
 		atomic.AddUint64(&udc.stats.updates, 1)
@@ -171,6 +175,7 @@ func (udc *Fuego) Update(doc *document.Document) (err error) {
 	} else {
 		atomic.AddUint64(&udc.stats.errors, 1)
 	}
+
 	return
 }
 
@@ -232,12 +237,14 @@ func (udc *Fuego) Delete(id string) (err error) {
 		udc.docCount--
 		udc.m.Unlock()
 	}
+
 	atomic.AddUint64(&udc.stats.indexTime, uint64(time.Since(indexStart)))
 	if err == nil {
 		atomic.AddUint64(&udc.stats.deletes, 1)
 	} else {
 		atomic.AddUint64(&udc.stats.errors, 1)
 	}
+
 	return
 }
 
@@ -248,20 +255,22 @@ func (udc *Fuego) deleteSingle(id string, backIndexRow *BackIndexRow, deleteRows
 		tfr := NewTermFrequencyRow([]byte(*backIndexEntry.Term), uint16(*backIndexEntry.Field), idBytes, 0, 0)
 		deleteRows = append(deleteRows, tfr)
 	}
+
 	for _, se := range backIndexRow.storedEntries {
 		sf := NewStoredRow(idBytes, uint16(*se.Field), se.ArrayPositions, 'x', nil)
 		deleteRows = append(deleteRows, sf)
 	}
 
 	// also delete the back entry itself
-	deleteRows = append(deleteRows, backIndexRow)
-	return deleteRows
+	return append(deleteRows, backIndexRow)
 }
 
 func (udc *Fuego) SetInternal(key, val []byte) (err error) {
 	internalRow := NewInternalRow(key, val)
+
 	udc.writeMutex.Lock()
 	defer udc.writeMutex.Unlock()
+
 	var writer store.KVWriter
 	writer, err = udc.store.Writer()
 	if err != nil {

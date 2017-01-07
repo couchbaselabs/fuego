@@ -34,12 +34,14 @@ type TermFieldReader struct {
 	includeTermVectors bool
 }
 
-func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16, includeFreq, includeNorm, includeTermVectors bool) (*TermFieldReader, error) {
+func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
+	includeFreq, includeNorm, includeTermVectors bool) (*TermFieldReader, error) {
 	dictionaryRow := NewDictionaryRow(term, field, 0)
 	val, err := indexReader.kvreader.Get(dictionaryRow.Key())
 	if err != nil {
 		return nil, err
 	}
+
 	if val == nil {
 		atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
 		return &TermFieldReader{
@@ -60,6 +62,7 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16, inc
 	it := indexReader.kvreader.PrefixIterator(tfr.Key())
 
 	atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
+
 	return &TermFieldReader{
 		indexReader:        indexReader,
 		iterator:           it,
@@ -84,17 +87,21 @@ func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermField
 		} else {
 			r.tfrNext = &TermFrequencyRow{}
 		}
+
 		key, val, valid := r.iterator.Current()
 		if valid {
 			tfr := r.tfrNext
+
 			err := tfr.parseKDoc(key, r.term)
 			if err != nil {
 				return nil, err
 			}
+
 			err = tfr.parseV(val, r.includeTermVectors)
 			if err != nil {
 				return nil, err
 			}
+
 			rv := preAlloced
 			if rv == nil {
 				rv = &index.TermFieldDoc{}
@@ -105,33 +112,40 @@ func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermField
 			if tfr.vectors != nil {
 				rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tfr.vectors)
 			}
+
 			return rv, nil
 		}
 	}
 	return nil, nil
 }
 
-func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index.TermFieldDoc) (rv *index.TermFieldDoc, err error) {
+func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index.TermFieldDoc) (
+	rv *index.TermFieldDoc, err error) {
 	if r.iterator != nil {
 		if r.tfrNext == nil {
 			r.tfrNext = &TermFrequencyRow{}
 		}
+
 		tfr := InitTermFrequencyRow(r.tfrNext, r.term, r.field, docID, 0, 0)
 		r.keyBuf, err = tfr.KeyAppendTo(r.keyBuf[:0])
 		if err != nil {
 			return nil, err
 		}
+
 		r.iterator.Seek(r.keyBuf)
+
 		key, val, valid := r.iterator.Current()
 		if valid {
 			err := tfr.parseKDoc(key, r.term)
 			if err != nil {
 				return nil, err
 			}
+
 			err = tfr.parseV(val, r.includeTermVectors)
 			if err != nil {
 				return nil, err
 			}
+
 			rv = preAlloced
 			if rv == nil {
 				rv = &index.TermFieldDoc{}
@@ -139,9 +153,11 @@ func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index
 			rv.ID = append(rv.ID, tfr.doc...)
 			rv.Freq = tfr.freq
 			rv.Norm = float64(tfr.norm)
+
 			if tfr.vectors != nil {
 				rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tfr.vectors)
 			}
+
 			return rv, nil
 		}
 	}
@@ -152,9 +168,11 @@ func (r *TermFieldReader) Close() error {
 	if r.indexReader != nil {
 		atomic.AddUint64(&r.indexReader.index.stats.termSearchersFinished, uint64(1))
 	}
+
 	if r.iterator != nil {
 		return r.iterator.Close()
 	}
+
 	return nil
 }
 
@@ -167,7 +185,6 @@ type DocIDReader struct {
 }
 
 func newDocIDReader(indexReader *IndexReader) (*DocIDReader, error) {
-
 	startBytes := []byte{0x0}
 	endBytes := []byte{0xff}
 
@@ -184,14 +201,17 @@ func newDocIDReader(indexReader *IndexReader) (*DocIDReader, error) {
 func newDocIDReaderOnly(indexReader *IndexReader, ids []string) (*DocIDReader, error) {
 	// ensure ids are sorted
 	sort.Strings(ids)
+
 	startBytes := []byte{0x0}
 	if len(ids) > 0 {
 		startBytes = []byte(ids[0])
 	}
+
 	endBytes := []byte{0xff}
 	if len(ids) > 0 {
 		endBytes = incrementBytes([]byte(ids[len(ids)-1]))
 	}
+
 	bisr := NewBackIndexRow(startBytes, nil, nil)
 	bier := NewBackIndexRow(endBytes, nil, nil)
 	it := indexReader.kvreader.RangeIterator(bisr.Key(), bier.Key())
@@ -214,24 +234,29 @@ func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 			if err != nil {
 				return nil, err
 			}
+
 			if !bytes.Equal(br.doc, []byte(r.only[r.onlyPos])) {
 				ok := r.nextOnly()
 				if !ok {
 					return nil, nil
 				}
+
 				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
 				key, val, valid = r.iterator.Current()
+
 				continue
 			} else {
 				rv = append([]byte(nil), br.doc...)
 				break
 			}
 		}
+
 		if valid && r.onlyPos < len(r.only) {
 			ok := r.nextOnly()
 			if ok {
 				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
 			}
+
 			return rv, nil
 		}
 
@@ -241,6 +266,7 @@ func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 			if err != nil {
 				return nil, err
 			}
+
 			rv := append([]byte(nil), br.doc...)
 			r.iterator.Next()
 			return rv, nil
@@ -250,13 +276,13 @@ func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 }
 
 func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalID, error) {
-
 	if r.onlyMode {
 		r.onlyPos = sort.SearchStrings(r.only, string(docID))
 		if r.onlyPos >= len(r.only) {
 			// advanced to key after our last only key
 			return nil, nil
 		}
+
 		r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
 		key, val, valid := r.iterator.Current()
 
@@ -266,6 +292,7 @@ func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalI
 			if err != nil {
 				return nil, err
 			}
+
 			if !bytes.Equal(br.doc, []byte(r.only[r.onlyPos])) {
 				// the only key we seek'd to didn't exist
 				// now look for the closest key that did exist in only
@@ -274,6 +301,7 @@ func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalI
 					// advanced to key after our last only key
 					return nil, nil
 				}
+
 				// now seek to this new only key
 				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
 				key, val, valid = r.iterator.Current()
@@ -288,22 +316,27 @@ func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalI
 			if ok {
 				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
 			}
+
 			return rv, nil
 		}
 	} else {
 		bir := NewBackIndexRow(docID, nil, nil)
 		r.iterator.Seek(bir.Key())
+
 		key, val, valid := r.iterator.Current()
 		if valid {
 			br, err := NewBackIndexRowKV(key, val)
 			if err != nil {
 				return nil, err
 			}
+
 			rv := append([]byte(nil), br.doc...)
 			r.iterator.Next()
+
 			return rv, nil
 		}
 	}
+
 	return nil, nil
 }
 
@@ -314,16 +347,17 @@ func (r *DocIDReader) Close() error {
 // move the r.only pos forward one, skipping duplicates
 // return true if there is more data, or false if we got to the end of the list
 func (r *DocIDReader) nextOnly() bool {
-
 	// advance 1 position, until we see a different key
-	//   it's already sorted, so this skips duplicates
+	// it's already sorted, so this skips duplicates
 	start := r.onlyPos
+
 	r.onlyPos++
 	for r.onlyPos < len(r.only) && r.only[r.onlyPos] == r.only[start] {
 		start = r.onlyPos
 		r.onlyPos++
 	}
-	// inidicate if we got to the end of the list
+
+	// indicate if we got to the end of the list
 	return r.onlyPos < len(r.only)
 }
 
@@ -345,5 +379,6 @@ func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.Ter
 		}
 		rv[i] = &tfv
 	}
+
 	return rv
 }
