@@ -73,7 +73,7 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 		}
 
 		for docID, doc := range batch.IndexOps {
-			backIndexRow, err := backIndexRowForDoc(kvreader, index.IndexInternalID(docID))
+			backIndexRow, err := backIndexRowForDoc(kvreader, []byte(docID))
 			if err != nil {
 				docBackIndexRowErr = err
 				return
@@ -351,14 +351,18 @@ func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, rows []index.IndexR
 	updateRows = make([]KVRow, 0, len(rows))
 	deleteRows = make([]KVRow, 0, len(rows))
 
-	existingTermKeys := make(map[string]bool)
-	for _, key := range backIndexRow.AllTermKeys() {
-		existingTermKeys[string(key)] = true
+	var mark struct{}
+
+	backIndexTermKeys := backIndexRow.AllTermKeys()
+	existingTermKeys := make(map[string]struct{}, len(backIndexTermKeys))
+	for _, key := range backIndexTermKeys {
+		existingTermKeys[string(key)] = mark
 	}
 
-	existingStoredKeys := make(map[string]bool)
-	for _, key := range backIndexRow.AllStoredKeys() {
-		existingStoredKeys[string(key)] = true
+	backIndexStoredKeys := backIndexRow.AllStoredKeys()
+	existingStoredKeys := make(map[string]struct{}, len(backIndexStoredKeys))
+	for _, key := range backIndexStoredKeys {
+		existingStoredKeys[string(key)] = mark
 	}
 
 	keyBuf := GetRowBuffer()

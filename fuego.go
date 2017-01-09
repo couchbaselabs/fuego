@@ -116,7 +116,7 @@ func (udc *Fuego) Update(doc *document.Document) (err error) {
 	// first we lookup the backindex row for the doc id if it exists
 	// lookup the back index row
 	var backIndexRow *BackIndexRow
-	backIndexRow, err = backIndexRowForDoc(kvreader, index.IndexInternalID(doc.ID))
+	backIndexRow, err = backIndexRowForDoc(kvreader, []byte(doc.ID))
 	if err != nil {
 		_ = kvreader.Close()
 		atomic.AddUint64(&udc.stats.errors, 1)
