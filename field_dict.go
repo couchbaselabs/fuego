@@ -32,7 +32,7 @@ type FieldDict struct {
 func newFieldDict(indexReader *IndexReader, field uint16, startTerm, endTerm []byte) (*FieldDict, error) {
 	startKey := NewDictionaryRow(startTerm, field, 0).Key()
 
- 	if endTerm == nil {
+	if endTerm == nil {
 		endTerm = []byte{ByteSeparator}
 	} else {
 		endTerm = incrementBytes(endTerm)

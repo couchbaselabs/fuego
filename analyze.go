@@ -24,6 +24,13 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
+type fieldAnalysis struct {
+	name               string
+	length             int
+	tokenFreqs         analysis.TokenFrequencies
+	includeTermVectors bool
+}
+
 func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
 	rv := &index.AnalysisResult{
 		DocID: d.ID,
@@ -33,32 +40,37 @@ func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
 	docIDBytes := []byte(d.ID)
 
 	// track our back index entries
-	backIndexStoredEntries := make([]*BackIndexStoreEntry, 0)
+	var backIndexStoredEntries []*BackIndexStoreEntry
 
 	// information we collate as we merge fields with same name
-	fieldTermFreqs := make(map[uint16]analysis.TokenFrequencies)
-	fieldLengths := make(map[uint16]int)
-	fieldIncludeTermVectors := make(map[uint16]bool)
-	fieldNames := make(map[uint16]string)
+	fieldAnalyses := make(map[uint16]*fieldAnalysis, len(d.Fields)+len(d.CompositeFields))
 
 	analyzeField := func(field document.Field, storable bool) {
-		fieldIndex, newFieldRow := udc.fieldIndexOrNewRow(field.Name())
+		name := field.Name()
+
+		fieldIndex, newFieldRow := udc.fieldIndexOrNewRow(name)
 		if newFieldRow != nil {
 			rv.Rows = append(rv.Rows, newFieldRow)
 		}
-		fieldNames[fieldIndex] = field.Name()
+
+		fa := fieldAnalyses[fieldIndex]
+		if fa == nil {
+			fa = &fieldAnalysis{name: name}
+			fieldAnalyses[fieldIndex] = fa
+		}
 
 		if field.Options().IsIndexed() {
 			fieldLength, tokenFreqs := field.Analyze()
-			existingFreqs := fieldTermFreqs[fieldIndex]
-			if existingFreqs == nil {
-				fieldTermFreqs[fieldIndex] = tokenFreqs
+
+			if fa.tokenFreqs == nil {
+				fa.tokenFreqs = tokenFreqs
 			} else {
-				existingFreqs.MergeAll(field.Name(), tokenFreqs)
-				fieldTermFreqs[fieldIndex] = existingFreqs
+				fa.tokenFreqs.MergeAll(fa.name, tokenFreqs)
 			}
-			fieldLengths[fieldIndex] += fieldLength
-			fieldIncludeTermVectors[fieldIndex] = field.Options().IncludeTermVectors()
+
+			fa.length += fieldLength
+
+			fa.includeTermVectors = field.Options().IncludeTermVectors()
 		}
 
 		if storable && field.Options().IsStored() {
@@ -76,10 +88,12 @@ func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
 	}
 
 	if len(d.CompositeFields) > 0 {
-		for fieldIndex, tokenFreqs := range fieldTermFreqs {
-			// see if any of the composite fields need this
-			for _, compositeField := range d.CompositeFields {
-				compositeField.Compose(fieldNames[fieldIndex], fieldLengths[fieldIndex], tokenFreqs)
+		for _, fa := range fieldAnalyses {
+			if fa.tokenFreqs != nil {
+				// see if any of the composite fields need this
+				for _, compositeField := range d.CompositeFields {
+					compositeField.Compose(fa.name, fa.length, fa.tokenFreqs)
+				}
 			}
 		}
 
@@ -89,8 +103,8 @@ func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
 	}
 
 	rowsCapNeeded := len(rv.Rows) + 1
-	for _, tokenFreqs := range fieldTermFreqs {
-		rowsCapNeeded += len(tokenFreqs)
+	for _, fa := range fieldAnalyses {
+		rowsCapNeeded += len(fa.tokenFreqs)
 	}
 
 	rv.Rows = append(make([]index.IndexRow, 0, rowsCapNeeded), rv.Rows...)
@@ -99,13 +113,13 @@ func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
 
 	// walk through the collated information and process
 	// once for each indexed field (unique name)
-	for fieldIndex, tokenFreqs := range fieldTermFreqs {
-		fieldLength := fieldLengths[fieldIndex]
-		includeTermVectors := fieldIncludeTermVectors[fieldIndex]
-
-		// encode this field
-		rv.Rows, backIndexTermEntries = udc.indexField(docIDBytes, includeTermVectors,
-			fieldIndex, fieldLength, tokenFreqs, rv.Rows, backIndexTermEntries)
+	for fieldIndex, fa := range fieldAnalyses {
+		if fa.tokenFreqs != nil {
+			// encode this field
+			rv.Rows, backIndexTermEntries = udc.indexField(docIDBytes,
+				fa.includeTermVectors, fieldIndex, fa.length, fa.tokenFreqs,
+				rv.Rows, backIndexTermEntries)
+		}
 	}
 
 	// build the back index row

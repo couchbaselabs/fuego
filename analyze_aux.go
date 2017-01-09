@@ -38,40 +38,42 @@ func (udc *Fuego) analyzeAux(d *document.Document, prealloc *analyzeAuxResult) *
 	if rv == nil {
 		rv = &analyzeAuxResult{}
 	}
+
 	rv.docID = d.ID
 	rv.docIDBytes = []byte(d.ID)
 
 	// track our back index entries
-	backIndexStoreEntries := []*BackIndexStoreEntry{}
+	var backIndexStoreEntries []*BackIndexStoreEntry
 
 	// information we collate as we merge fields with same name
-	fieldTermFreqs := make(map[uint16]analysis.TokenFrequencies)
-	fieldLengths := make(map[uint16]int)
-	fieldIncludeTermVectors := make(map[uint16]bool)
-	fieldNames := make(map[uint16]string)
+	fieldAnalyses := make(map[uint16]*fieldAnalysis, len(d.Fields)+len(d.CompositeFields))
 
 	analyzeField := func(field document.Field, storable bool) {
-		fieldIndex, newFieldRow := udc.fieldIndexOrNewRow(field.Name())
+		name := field.Name()
+
+		fieldIndex, newFieldRow := udc.fieldIndexOrNewRow(name)
 		if newFieldRow != nil {
 			rv.fieldRows = append(rv.fieldRows, newFieldRow)
 		}
 
-		fieldNames[fieldIndex] = field.Name()
+		fa := fieldAnalyses[fieldIndex]
+		if fa == nil {
+			fa = &fieldAnalysis{name: name}
+			fieldAnalyses[fieldIndex] = fa
+		}
 
 		if field.Options().IsIndexed() {
 			fieldLength, tokenFreqs := field.Analyze()
 
-			existingFreqs := fieldTermFreqs[fieldIndex]
-			if existingFreqs == nil {
-				fieldTermFreqs[fieldIndex] = tokenFreqs
+			if fa.tokenFreqs == nil {
+				fa.tokenFreqs = tokenFreqs
 			} else {
-				existingFreqs.MergeAll(field.Name(), tokenFreqs)
-				fieldTermFreqs[fieldIndex] = existingFreqs
+				fa.tokenFreqs.MergeAll(name, tokenFreqs)
 			}
 
-			fieldLengths[fieldIndex] += fieldLength
+			fa.length += fieldLength
 
-			fieldIncludeTermVectors[fieldIndex] = field.Options().IncludeTermVectors()
+			fa.includeTermVectors = field.Options().IncludeTermVectors()
 		}
 
 		if storable && field.Options().IsStored() {
@@ -89,10 +91,12 @@ func (udc *Fuego) analyzeAux(d *document.Document, prealloc *analyzeAuxResult) *
 	}
 
 	if len(d.CompositeFields) > 0 {
-		for fieldIndex, tokenFreqs := range fieldTermFreqs {
-			// see if any of the composite fields need this
-			for _, compositeField := range d.CompositeFields {
-				compositeField.Compose(fieldNames[fieldIndex], fieldLengths[fieldIndex], tokenFreqs)
+		for _, fa := range fieldAnalyses {
+			if fa.tokenFreqs != nil {
+				// see if any of the composite fields need this
+				for _, compositeField := range d.CompositeFields {
+					compositeField.Compose(fa.name, fa.length, fa.tokenFreqs)
+				}
 			}
 		}
 
@@ -102,12 +106,11 @@ func (udc *Fuego) analyzeAux(d *document.Document, prealloc *analyzeAuxResult) *
 	}
 
 	numTokenFreqs := 0
-	for _, tokenFreqs := range fieldTermFreqs {
-		numTokenFreqs += len(tokenFreqs)
+	for _, fa := range fieldAnalyses {
+		numTokenFreqs += len(fa.tokenFreqs)
 	}
 
-	if rv.termFreqRows == nil ||
-		cap(rv.termFreqRows) < numTokenFreqs {
+	if rv.termFreqRows == nil || cap(rv.termFreqRows) < numTokenFreqs {
 		rv.termFreqRows = make([]*TermFrequencyRow, 0, numTokenFreqs)
 	}
 	rv.termFreqRows = rv.termFreqRows[0:0]
@@ -116,14 +119,13 @@ func (udc *Fuego) analyzeAux(d *document.Document, prealloc *analyzeAuxResult) *
 
 	// walk through the collated information and process
 	// once for each indexed field (unique name)
-	for fieldIndex, tokenFreqs := range fieldTermFreqs {
-		fieldLength := fieldLengths[fieldIndex]
-		includeTermVectors := fieldIncludeTermVectors[fieldIndex]
-
-		// encode this field
-		rv.fieldRows, rv.termFreqRows, backIndexTermEntries = udc.indexFieldAux(rv.docIDBytes,
-			includeTermVectors, fieldIndex, fieldLength, tokenFreqs,
-			rv.fieldRows, rv.termFreqRows, backIndexTermEntries)
+	for fieldIndex, fa := range fieldAnalyses {
+		if fa.tokenFreqs != nil {
+			// encode this field
+			rv.fieldRows, rv.termFreqRows, backIndexTermEntries = udc.indexFieldAux(rv.docIDBytes,
+				fa.includeTermVectors, fieldIndex, fa.length, fa.tokenFreqs,
+				rv.fieldRows, rv.termFreqRows, backIndexTermEntries)
+		}
 	}
 
 	// build the back index row
@@ -208,4 +210,3 @@ func (udc *Fuego) storeFieldAux(docID []byte, field document.Field, fieldIndex u
 
 	return storedRows, backIndexStoreEntries
 }
-
