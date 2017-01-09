@@ -38,11 +38,14 @@ func TestAnalysisBug328(t *testing.T) {
 	}
 
 	d := document.NewDocument("1")
-	f := document.NewTextFieldCustom("title", nil, []byte("bleve"), document.IndexField|document.IncludeTermVectors, analyzer)
+	f := document.NewTextFieldCustom("title", nil, []byte("bleve"),
+		document.IndexField|document.IncludeTermVectors, analyzer)
 	d.AddField(f)
-	f = document.NewTextFieldCustom("body", nil, []byte("bleve"), document.IndexField|document.IncludeTermVectors, analyzer)
+	f = document.NewTextFieldCustom("body", nil, []byte("bleve"),
+		document.IndexField|document.IncludeTermVectors, analyzer)
 	d.AddField(f)
-	cf := document.NewCompositeFieldWithIndexingOptions("_all", true, []string{}, []string{}, document.IndexField|document.IncludeTermVectors)
+	cf := document.NewCompositeFieldWithIndexingOptions("_all", true, []string{}, []string{},
+		document.IndexField|document.IncludeTermVectors)
 	d.AddField(cf)
 
 	rv := idx.Analyze(d)
@@ -55,7 +58,8 @@ func TestAnalysisBug328(t *testing.T) {
 			for _, vec := range row.vectors {
 				if vec.field != row.field {
 					if fieldIndexes[row.field] != "_all" {
-						t.Errorf("row named %s field %d - vector field %d", fieldIndexes[row.field], row.field, vec.field)
+						t.Errorf("row named %s field %d - vector field %d",
+							fieldIndexes[row.field], row.field, vec.field)
 					}
 				}
 			}
@@ -64,7 +68,6 @@ func TestAnalysisBug328(t *testing.T) {
 }
 
 func BenchmarkAnalyze(b *testing.B) {
-
 	cache := registry.NewCache()
 	analyzer, err := cache.AnalyzerNamed(standard.Name)
 	if err != nil {

@@ -30,13 +30,14 @@ type FieldDict struct {
 }
 
 func newFieldDict(indexReader *IndexReader, field uint16, startTerm, endTerm []byte) (*FieldDict, error) {
-
 	startKey := NewDictionaryRow(startTerm, field, 0).Key()
-	if endTerm == nil {
+
+ 	if endTerm == nil {
 		endTerm = []byte{ByteSeparator}
 	} else {
 		endTerm = incrementBytes(endTerm)
 	}
+
 	endKey := NewDictionaryRow(endTerm, field, 0).Key()
 
 	it := indexReader.kvreader.RangeIterator(startKey, endKey)
@@ -48,7 +49,6 @@ func newFieldDict(indexReader *IndexReader, field uint16, startTerm, endTerm []b
 		dictEntry:   &index.DictEntry{}, // Pre-alloced, reused entry.
 		field:       field,
 	}, nil
-
 }
 
 func (r *FieldDict) Next() (*index.DictEntry, error) {
@@ -61,14 +61,18 @@ func (r *FieldDict) Next() (*index.DictEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unexpected error parsing dictionary row key: %v", err)
 	}
+
 	err = r.dictRow.parseDictionaryV(val)
 	if err != nil {
 		return nil, fmt.Errorf("unexpected error parsing dictionary row val: %v", err)
 	}
+
 	r.dictEntry.Term = string(r.dictRow.term)
 	r.dictEntry.Count = r.dictRow.count
+
 	// advance the iterator to the next term
 	r.iterator.Next()
+
 	return r.dictEntry, nil
 
 }
