@@ -38,10 +38,9 @@ type Fuego struct {
 	analysisQueue *index.AnalysisQueue
 	stats         *indexStat
 
-	m sync.RWMutex
-	// fields protected by m
-	docCount    uint64
-	docCountMax uint64 // Only grows - max docCount seen.
+	m sync.RWMutex // Protects the fields that follow.
+
+	docCount uint64
 
 	writeMutex sync.Mutex
 }
@@ -67,10 +66,9 @@ func (udc *Fuego) Reader() (index.IndexReader, error) {
 	udc.m.RLock()
 	defer udc.m.RUnlock()
 	return &IndexReader{
-		index:       udc,
-		kvreader:    kvr,
-		docCount:    udc.docCount,
-		docCountMax: udc.docCountMax,
+		index:    udc,
+		kvreader: kvr,
+		docCount: udc.docCount,
 	}, nil
 }
 
@@ -162,9 +160,6 @@ func (udc *Fuego) Update(doc *document.Document) (err error) {
 	if err == nil && backIndexRow == nil {
 		udc.m.Lock()
 		udc.docCount++
-		if udc.docCountMax < udc.docCount {
-			udc.docCountMax = udc.docCount
-		}
 		udc.m.Unlock()
 	}
 
