@@ -62,7 +62,8 @@ func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
 		}
 
 		if storable && field.Options().IsStored() {
-			rv.Rows, backIndexStoredEntries = udc.storeField(docIDBytes, field, fieldIndex, rv.Rows, backIndexStoredEntries)
+			rv.Rows, backIndexStoredEntries =
+				udc.storeField(docIDBytes, field, fieldIndex, rv.Rows, backIndexStoredEntries)
 		}
 	}
 
@@ -133,7 +134,10 @@ func (udc *Fuego) indexField(docID []byte, includeTermVectors bool,
 		}
 
 		// record the back index entry
-		backIndexTermEntry := BackIndexTermEntry{Term: proto.String(k), Field: proto.Uint32(uint32(fieldIndex))}
+		backIndexTermEntry := BackIndexTermEntry{
+			Term:  proto.String(k),
+			Field: proto.Uint32(uint32(fieldIndex)),
+		}
 		backIndexTermEntries = append(backIndexTermEntries, &backIndexTermEntry)
 
 		rows = append(rows, termFreqRow)
@@ -142,7 +146,8 @@ func (udc *Fuego) indexField(docID []byte, includeTermVectors bool,
 	return rows, backIndexTermEntries
 }
 
-func (udc *Fuego) termVectorsFromTokenFreq(field uint16, tf *analysis.TokenFreq, rows []index.IndexRow) (
+func (udc *Fuego) termVectorsFromTokenFreq(field uint16, tf *analysis.TokenFreq,
+	rows []index.IndexRow) (
 	[]*TermVector, []index.IndexRow) {
 	rv := make([]*TermVector, len(tf.Locations))
 
@@ -181,13 +186,17 @@ func (udc *Fuego) fieldIndexOrNewRow(name string) (uint16, *FieldRow) {
 	return index, nil
 }
 
-func (udc *Fuego) storeField(docID []byte, field document.Field, fieldIndex uint16, rows []index.IndexRow,
-	backIndexStoredEntries []*BackIndexStoreEntry) ([]index.IndexRow, []*BackIndexStoreEntry) {
+func (udc *Fuego) storeField(docID []byte, field document.Field, fieldIndex uint16,
+	rows []index.IndexRow, backIndexStoredEntries []*BackIndexStoreEntry) (
+	[]index.IndexRow, []*BackIndexStoreEntry) {
 	fieldType := encodeFieldType(field)
 	storedRow := NewStoredRow(docID, fieldIndex, field.ArrayPositions(), fieldType, field.Value())
 
 	// record the back index entry
-	backIndexStoredEntry := BackIndexStoreEntry{Field: proto.Uint32(uint32(fieldIndex)), ArrayPositions: field.ArrayPositions()}
+	backIndexStoredEntry := BackIndexStoreEntry{
+		Field:          proto.Uint32(uint32(fieldIndex)),
+		ArrayPositions: field.ArrayPositions(),
+	}
 
 	return append(rows, storedRow), append(backIndexStoredEntries, &backIndexStoredEntry)
 }
