@@ -345,6 +345,15 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, rows []index.IndexRow) (
 	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
 	addRows = make([]KVRow, 0, len(rows))
+
+	if backIndexRow == nil {
+		addRows = addRows[0:len(rows)]
+		for i, row := range rows {
+			addRows[i] = row
+		}
+		return addRows, nil, nil
+	}
+
 	updateRows = make([]KVRow, 0, len(rows))
 	deleteRows = make([]KVRow, 0, len(rows))
 

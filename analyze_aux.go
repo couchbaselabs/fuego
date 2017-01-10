@@ -142,18 +142,19 @@ func (udc *Fuego) indexFieldAux(docID []byte, includeTermVectors bool,
 	[]*FieldRow, []*TermFrequencyRow, []*BackIndexTermEntry) {
 	fieldNorm := float32(1.0 / math.Sqrt(float64(fieldLength)))
 
+	termFreqRowsArr := make([]TermFrequencyRow, len(tokenFreqs))
+	termFreqRowsUsed := 0
+
 	for k, tf := range tokenFreqs {
-		var termFreqRow *TermFrequencyRow
+		termFreqRow := &termFreqRowsArr[termFreqRowsUsed]
+		termFreqRowsUsed++
+
+		InitTermFrequencyRow(termFreqRow, tf.Term, fieldIndex, docID,
+			uint64(frequencyFromTokenFreq(tf)), fieldNorm)
 
 		if includeTermVectors {
-			var tv []*TermVector
-			tv, fieldRows = udc.termVectorsFromTokenFreqAux(fieldIndex, tf, fieldRows)
-
-			termFreqRow = NewTermFrequencyRowWithTermVectors(tf.Term, fieldIndex, docID,
-				uint64(frequencyFromTokenFreq(tf)), fieldNorm, tv)
-		} else {
-			termFreqRow = NewTermFrequencyRow(tf.Term, fieldIndex, docID,
-				uint64(frequencyFromTokenFreq(tf)), fieldNorm)
+			termFreqRow.vectors, fieldRows =
+				udc.termVectorsFromTokenFreqAux(fieldIndex, tf, fieldRows)
 		}
 
 		// record the back index entry
@@ -170,6 +171,7 @@ func (udc *Fuego) indexFieldAux(docID []byte, includeTermVectors bool,
 
 func (udc *Fuego) termVectorsFromTokenFreqAux(field uint16,
 	tf *analysis.TokenFreq, fieldRows []*FieldRow) ([]*TermVector, []*FieldRow) {
+	a := make([]TermVector, len(tf.Locations))
 	rv := make([]*TermVector, len(tf.Locations))
 
 	for i, l := range tf.Locations {
@@ -183,13 +185,14 @@ func (udc *Fuego) termVectorsFromTokenFreqAux(field uint16,
 			}
 		}
 
-		rv[i] = &TermVector{
+		a[i] = TermVector{
 			field:          fieldIndex,
 			arrayPositions: l.ArrayPositions,
 			pos:            uint64(l.Position),
 			start:          uint64(l.Start),
 			end:            uint64(l.End),
 		}
+		rv[i] = &a[i]
 	}
 
 	return rv, fieldRows
