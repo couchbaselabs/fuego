@@ -30,13 +30,20 @@ type analyzeAuxResult struct {
 	fieldRows    []*FieldRow
 	termFreqRows []*TermFrequencyRow
 	storedRows   []*StoredRow
+
 	backIndexRow *BackIndexRow
 }
 
-func (udc *Fuego) analyzeAux(d *document.Document, prealloc *analyzeAuxResult) *analyzeAuxResult {
+func (udc *Fuego) analyzeAux(d *document.Document,
+	wantBackIndex bool, prealloc *analyzeAuxResult) *analyzeAuxResult {
 	rv := prealloc
 	if rv == nil {
 		rv = &analyzeAuxResult{}
+	} else {
+		rv.fieldRows = rv.fieldRows[0:0]
+		rv.termFreqRows = rv.termFreqRows[0:0]
+		rv.storedRows = rv.storedRows[0:0]
+		rv.backIndexRow = nil
 	}
 
 	rv.docID = d.ID
@@ -78,7 +85,7 @@ func (udc *Fuego) analyzeAux(d *document.Document, prealloc *analyzeAuxResult) *
 
 		if storable && field.Options().IsStored() {
 			rv.storedRows, backIndexStoreEntries = udc.storeFieldAux(rv.docIDBytes,
-				field, fieldIndex, rv.storedRows, backIndexStoreEntries)
+				field, fieldIndex, rv.storedRows, wantBackIndex, backIndexStoreEntries)
 		}
 	}
 
@@ -115,7 +122,11 @@ func (udc *Fuego) analyzeAux(d *document.Document, prealloc *analyzeAuxResult) *
 	}
 	rv.termFreqRows = rv.termFreqRows[0:0]
 
-	backIndexTermEntries := make([]*BackIndexTermEntry, 0, numTokenFreqs)
+	var backIndexTermEntries []*BackIndexTermEntry
+
+	if wantBackIndex {
+		backIndexTermEntries = make([]*BackIndexTermEntry, 0, numTokenFreqs)
+	}
 
 	// walk through the collated information and process
 	// once for each indexed field (unique name)
@@ -124,12 +135,13 @@ func (udc *Fuego) analyzeAux(d *document.Document, prealloc *analyzeAuxResult) *
 			// encode this field
 			rv.fieldRows, rv.termFreqRows, backIndexTermEntries = udc.indexFieldAux(rv.docIDBytes,
 				fa.includeTermVectors, fieldIndex, fa.length, fa.tokenFreqs,
-				rv.fieldRows, rv.termFreqRows, backIndexTermEntries)
+				rv.fieldRows, rv.termFreqRows, wantBackIndex, backIndexTermEntries)
 		}
 	}
 
-	// build the back index row
-	rv.backIndexRow = NewBackIndexRow(rv.docIDBytes, backIndexTermEntries, backIndexStoreEntries)
+	if wantBackIndex {
+		rv.backIndexRow = NewBackIndexRow(rv.docIDBytes, backIndexTermEntries, backIndexStoreEntries)
+	}
 
 	return rv
 }
@@ -138,7 +150,7 @@ func (udc *Fuego) indexFieldAux(docID []byte, includeTermVectors bool,
 	fieldIndex uint16, fieldLength int, tokenFreqs analysis.TokenFrequencies,
 	fieldRows []*FieldRow,
 	termFreqRows []*TermFrequencyRow,
-	backIndexTermEntries []*BackIndexTermEntry) (
+	wantBackIndex bool, backIndexTermEntries []*BackIndexTermEntry) (
 	[]*FieldRow, []*TermFrequencyRow, []*BackIndexTermEntry) {
 	fieldNorm := float32(1.0 / math.Sqrt(float64(fieldLength)))
 
@@ -157,11 +169,12 @@ func (udc *Fuego) indexFieldAux(docID []byte, includeTermVectors bool,
 				udc.termVectorsFromTokenFreqAux(fieldIndex, tf, fieldRows)
 		}
 
-		// record the back index entry
-		backIndexTermEntries = append(backIndexTermEntries, &BackIndexTermEntry{
-			Term:  proto.String(k),
-			Field: proto.Uint32(uint32(fieldIndex)),
-		})
+		if wantBackIndex {
+			backIndexTermEntries = append(backIndexTermEntries, &BackIndexTermEntry{
+				Term:  proto.String(k),
+				Field: proto.Uint32(uint32(fieldIndex)),
+			})
+		}
 
 		termFreqRows = append(termFreqRows, termFreqRow)
 	}
@@ -199,17 +212,19 @@ func (udc *Fuego) termVectorsFromTokenFreqAux(field uint16,
 }
 
 func (udc *Fuego) storeFieldAux(docID []byte, field document.Field, fieldIndex uint16,
-	storedRows []*StoredRow, backIndexStoreEntries []*BackIndexStoreEntry) (
+	storedRows []*StoredRow, wantBackIndex bool, backIndexStoreEntries []*BackIndexStoreEntry) (
 	[]*StoredRow, []*BackIndexStoreEntry) {
 	fieldType := encodeFieldType(field)
 
 	storedRows = append(storedRows, NewStoredRow(docID,
 		fieldIndex, field.ArrayPositions(), fieldType, field.Value()))
 
-	backIndexStoreEntries = append(backIndexStoreEntries, &BackIndexStoreEntry{
-		Field:          proto.Uint32(uint32(fieldIndex)),
-		ArrayPositions: field.ArrayPositions(),
-	})
+	if wantBackIndex {
+		backIndexStoreEntries = append(backIndexStoreEntries, &BackIndexStoreEntry{
+			Field:          proto.Uint32(uint32(fieldIndex)),
+			ArrayPositions: field.ArrayPositions(),
+		})
+	}
 
 	return storedRows, backIndexStoreEntries
 }
