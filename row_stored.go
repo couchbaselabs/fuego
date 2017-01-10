@@ -69,7 +69,8 @@ func (s *StoredRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (s *StoredRow) String() string {
-	return fmt.Sprintf("Document: %s Field %d, Array Positions: %v, Type: %s Value: %s", s.doc, s.field, s.arrayPositions, string(s.typ), s.value)
+	return fmt.Sprintf("Document: %s Field %d, Array Positions: %v, Type: %s Value: %s",
+		s.doc, s.field, s.arrayPositions, string(s.typ), s.value)
 }
 
 func (s *StoredRow) ScanPrefixForDoc() []byte {
@@ -119,6 +120,7 @@ func NewStoredRowK(key []byte) (*StoredRow, error) {
 		rv.arrayPositions = append(rv.arrayPositions, nextArrayPos)
 		nextArrayPos, err = binary.ReadUvarint(buf)
 	}
+
 	return &rv, nil
 }
 
@@ -127,7 +129,9 @@ func NewStoredRowKV(key, value []byte) (*StoredRow, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	rv.typ = value[0]
 	rv.value = value[1:]
+
 	return rv, nil
 }
