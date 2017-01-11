@@ -16,6 +16,7 @@ package fuego
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/blevesearch/bleve/registry"
 )
@@ -37,4 +38,6 @@ var IncompatibleVersion = fmt.Errorf("incompatible version, %d is supported", Ve
 
 func init() {
 	registry.RegisterIndexType(Name, NewFuego)
+
+	AnalyzeAuxQueue = NewAnalyzeAuxQueue(0, runtime.GOMAXPROCS(runtime.NumCPU()))
 }

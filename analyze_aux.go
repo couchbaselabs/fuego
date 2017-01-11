@@ -26,9 +26,9 @@ import (
 type analyzeAuxReq struct {
 	i             *Fuego
 	d             *document.Document
-	wantBackIndex bool
 	rv            *analyzeAuxResult
 	rc            chan *analyzeAuxResult
+	wantBackIndex bool
 }
 
 type analyzeAuxResult struct {
@@ -41,6 +41,8 @@ type analyzeAuxResult struct {
 
 	backIndexRow *BackIndexRow
 }
+
+var AnalyzeAuxQueue chan *analyzeAuxReq // See init.go.
 
 func NewAnalyzeAuxQueue(queueSize, numWorkers int) chan *analyzeAuxReq {
 	ch := make(chan *analyzeAuxReq, queueSize)
