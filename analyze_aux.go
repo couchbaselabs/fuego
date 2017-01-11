@@ -23,33 +23,33 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
-type analyzeAuxReq struct {
-	i             *Fuego
-	d             *document.Document
-	rv            *analyzeAuxResult
-	rc            chan *analyzeAuxResult
-	wantBackIndex bool
+type AnalyzeAuxReq struct {
+	Index          *Fuego
+	Doc            *document.Document
+	ResultPrealloc *AnalyzeAuxResult
+	ResultCh       chan *AnalyzeAuxResult
+	WantBackIndex  bool
 }
 
-type analyzeAuxResult struct {
-	docID      string
-	docIDBytes []byte
+type AnalyzeAuxResult struct {
+	DocID      string
+	DocIDBytes []byte
 
-	fieldRows    []*FieldRow
-	termFreqRows []*TermFrequencyRow
-	storedRows   []*StoredRow
+	FieldRows    []*FieldRow
+	TermFreqRows []*TermFrequencyRow
+	StoredRows   []*StoredRow
 
-	backIndexRow *BackIndexRow
+	BackIndexRow *BackIndexRow
 }
 
-var AnalyzeAuxQueue chan *analyzeAuxReq // See init.go.
+var AnalyzeAuxQueue chan *AnalyzeAuxReq // See init.go.
 
-func NewAnalyzeAuxQueue(queueSize, numWorkers int) chan *analyzeAuxReq {
-	ch := make(chan *analyzeAuxReq, queueSize)
+func NewAnalyzeAuxQueue(queueSize, numWorkers int) chan *AnalyzeAuxReq {
+	ch := make(chan *AnalyzeAuxReq, queueSize)
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			for w := range ch {
-				w.rc <- w.i.analyzeAux(w.d, w.wantBackIndex, w.rv)
+				w.ResultCh <- w.Index.analyzeAux(w.Doc, w.WantBackIndex, w.ResultPrealloc)
 			}
 		}()
 	}
@@ -57,19 +57,19 @@ func NewAnalyzeAuxQueue(queueSize, numWorkers int) chan *analyzeAuxReq {
 }
 
 func (udc *Fuego) analyzeAux(d *document.Document,
-	wantBackIndex bool, prealloc *analyzeAuxResult) *analyzeAuxResult {
+	wantBackIndex bool, prealloc *AnalyzeAuxResult) *AnalyzeAuxResult {
 	rv := prealloc
 	if rv == nil {
-		rv = &analyzeAuxResult{}
+		rv = &AnalyzeAuxResult{}
 	} else {
-		rv.fieldRows = rv.fieldRows[0:0]
-		rv.termFreqRows = rv.termFreqRows[0:0]
-		rv.storedRows = rv.storedRows[0:0]
-		rv.backIndexRow = nil
+		rv.FieldRows = rv.FieldRows[0:0]
+		rv.TermFreqRows = rv.TermFreqRows[0:0]
+		rv.StoredRows = rv.StoredRows[0:0]
+		rv.BackIndexRow = nil
 	}
 
-	rv.docID = d.ID
-	rv.docIDBytes = []byte(d.ID)
+	rv.DocID = d.ID
+	rv.DocIDBytes = []byte(d.ID)
 
 	// track our back index entries
 	var backIndexStoreEntries []*BackIndexStoreEntry
@@ -82,7 +82,7 @@ func (udc *Fuego) analyzeAux(d *document.Document,
 
 		fieldIndex, newFieldRow := udc.fieldIndexOrNewRow(name)
 		if newFieldRow != nil {
-			rv.fieldRows = append(rv.fieldRows, newFieldRow)
+			rv.FieldRows = append(rv.FieldRows, newFieldRow)
 		}
 
 		fa := fieldAnalyses[fieldIndex]
@@ -106,8 +106,8 @@ func (udc *Fuego) analyzeAux(d *document.Document,
 		}
 
 		if storable && field.Options().IsStored() {
-			rv.storedRows, backIndexStoreEntries = udc.storeFieldAux(rv.docIDBytes,
-				field, fieldIndex, rv.storedRows, wantBackIndex, backIndexStoreEntries)
+			rv.StoredRows, backIndexStoreEntries = udc.storeFieldAux(rv.DocIDBytes,
+				field, fieldIndex, rv.StoredRows, wantBackIndex, backIndexStoreEntries)
 		}
 	}
 
@@ -139,10 +139,10 @@ func (udc *Fuego) analyzeAux(d *document.Document,
 		numTokenFreqs += len(fa.tokenFreqs)
 	}
 
-	if rv.termFreqRows == nil || cap(rv.termFreqRows) < numTokenFreqs {
-		rv.termFreqRows = make([]*TermFrequencyRow, 0, numTokenFreqs)
+	if rv.TermFreqRows == nil || cap(rv.TermFreqRows) < numTokenFreqs {
+		rv.TermFreqRows = make([]*TermFrequencyRow, 0, numTokenFreqs)
 	}
-	rv.termFreqRows = rv.termFreqRows[0:0]
+	rv.TermFreqRows = rv.TermFreqRows[0:0]
 
 	var backIndexTermEntries []*BackIndexTermEntry
 
@@ -155,14 +155,14 @@ func (udc *Fuego) analyzeAux(d *document.Document,
 	for fieldIndex, fa := range fieldAnalyses {
 		if fa.tokenFreqs != nil {
 			// encode this field
-			rv.fieldRows, rv.termFreqRows, backIndexTermEntries = udc.indexFieldAux(rv.docIDBytes,
+			rv.FieldRows, rv.TermFreqRows, backIndexTermEntries = udc.indexFieldAux(rv.DocIDBytes,
 				fa.includeTermVectors, fieldIndex, fa.length, fa.tokenFreqs,
-				rv.fieldRows, rv.termFreqRows, wantBackIndex, backIndexTermEntries)
+				rv.FieldRows, rv.TermFreqRows, wantBackIndex, backIndexTermEntries)
 		}
 	}
 
 	if wantBackIndex {
-		rv.backIndexRow = NewBackIndexRow(rv.docIDBytes, backIndexTermEntries, backIndexStoreEntries)
+		rv.BackIndexRow = NewBackIndexRow(rv.DocIDBytes, backIndexTermEntries, backIndexStoreEntries)
 	}
 
 	return rv
