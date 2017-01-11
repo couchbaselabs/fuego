@@ -23,6 +23,14 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
+type analyzeAuxReq struct {
+	i             *Fuego
+	d             *document.Document
+	wantBackIndex bool
+	rv            *analyzeAuxResult
+	rc            chan *analyzeAuxResult
+}
+
 type analyzeAuxResult struct {
 	docID      string
 	docIDBytes []byte
@@ -32,6 +40,18 @@ type analyzeAuxResult struct {
 	storedRows   []*StoredRow
 
 	backIndexRow *BackIndexRow
+}
+
+func NewAnalyzeAuxQueue(queueSize, numWorkers int) chan *analyzeAuxReq {
+	ch := make(chan *analyzeAuxReq, queueSize)
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			for w := range ch {
+				w.rc <- w.i.analyzeAux(w.d, w.wantBackIndex, w.rv)
+			}
+		}()
+	}
+	return ch
 }
 
 func (udc *Fuego) analyzeAux(d *document.Document,
