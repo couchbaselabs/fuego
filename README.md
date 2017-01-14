@@ -34,8 +34,8 @@ for each batch...
       deletion:batch0xffffe-recordId1 -> nil
 
     counts
-      countDeletions:batch0xffffe -> 1
-      countSize:batch0xffffe -> 1000
+      countBatchDeletions:batch0xffffe -> 1
+      countBatchSize:batch0xffffe -> 1000
 
 asynchronous GC's of key-val's
   that represent outdated batches and records.
