@@ -20,12 +20,14 @@ import (
 	"fmt"
 )
 
+var VersionKey = []byte{'v'}
+
 type VersionRow struct {
 	version uint8
 }
 
 func (v *VersionRow) Key() []byte {
-	return []byte{'v'}
+	return VersionKey
 }
 
 func (v *VersionRow) KeySize() int {
@@ -33,7 +35,7 @@ func (v *VersionRow) KeySize() int {
 }
 
 func (v *VersionRow) KeyTo(buf []byte) (int, error) {
-	buf[0] = 'v'
+	buf[0] = VersionKey[0]
 	return 1, nil
 }
 

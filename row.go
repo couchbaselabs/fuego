@@ -34,20 +34,22 @@ type KVRow interface {
 func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 	if len(key) > 0 {
 		switch key[0] {
-		case 'v':
-			return NewVersionRowKV(key, value)
-		case 'f':
-			return NewFieldRowKV(key, value)
-		case 'd':
-			return NewDictionaryRowKV(key, value)
-		case 't':
-			return NewTermFrequencyRowKV(key, value)
 		case 'b':
 			return NewBackIndexRowKV(key, value)
-		case 's':
-			return NewStoredRowKV(key, value)
+		case 'd':
+			return NewDictionaryRowKV(key, value)
+		case 'f':
+			return NewFieldRowKV(key, value)
 		case 'i':
 			return NewInternalRowKV(key, value)
+		case 's':
+			return NewStoredRowKV(key, value)
+		case 't':
+			return NewTermFrequencyRowKV(key, value)
+		case 'v':
+			return NewVersionRowKV(key, value)
+		case 'z':
+			return NewSummaryRowKV(key, value)
 		}
 		return nil, fmt.Errorf("Unknown field type '%s'", string(key[0]))
 	}
