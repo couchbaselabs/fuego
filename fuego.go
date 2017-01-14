@@ -260,49 +260,6 @@ func (udc *Fuego) deleteSingle(id string, backIndexRow *BackIndexRow, deleteRows
 	return append(deleteRows, backIndexRow)
 }
 
-func (udc *Fuego) SetInternal(key, val []byte) (err error) {
-	internalRow := NewInternalRow(key, val)
-
-	udc.writeMutex.Lock()
-	defer udc.writeMutex.Unlock()
-
-	var writer store.KVWriter
-	writer, err = udc.store.Writer()
-	if err != nil {
-		return
-	}
-	defer func() {
-		if cerr := writer.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}()
-
-	batch := writer.NewBatch()
-	batch.Set(internalRow.Key(), internalRow.Value())
-
-	return writer.ExecuteBatch(batch)
-}
-
-func (udc *Fuego) DeleteInternal(key []byte) (err error) {
-	internalRow := NewInternalRow(key, nil)
-	udc.writeMutex.Lock()
-	defer udc.writeMutex.Unlock()
-	var writer store.KVWriter
-	writer, err = udc.store.Writer()
-	if err != nil {
-		return
-	}
-	defer func() {
-		if cerr := writer.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}()
-
-	batch := writer.NewBatch()
-	batch.Delete(internalRow.Key())
-	return writer.ExecuteBatch(batch)
-}
-
 func (udc *Fuego) rowCount() (count uint64, err error) {
 	// start an isolated reader for use during the row count
 	kvreader, err := udc.store.Reader()
