@@ -20,43 +20,42 @@ import (
 	"github.com/blevesearch/bleve/registry"
 )
 
-func (udc *Fuego) Open() (err error) {
-	// acquire the write mutex for the duratin of Open()
+func (udc *Fuego) Open() error {
+	// acquire the write mutex for the duration of Open()
 	udc.writeMutex.Lock()
 	defer udc.writeMutex.Unlock()
 
 	// open the kv store
 	storeConstructor := registry.KVStoreConstructorByName(udc.storeName)
 	if storeConstructor == nil {
-		err = index.ErrorUnknownStorageType
-		return
+		return index.ErrorUnknownStorageType
 	}
 
 	// now open the store
+	var err error
 	udc.store, err = storeConstructor(&mergeOperator, udc.storeConfig)
 	if err != nil {
-		return
+		return err
 	}
 
 	// start a reader to look at the index
 	var kvreader store.KVReader
 	kvreader, err = udc.store.Reader()
 	if err != nil {
-		return
+		return err
 	}
 
-	var value []byte
-	value, err = kvreader.Get(VersionKey)
+	value, err := kvreader.Get(VersionKey)
 	if err != nil {
 		_ = kvreader.Close()
-		return
+		return err
 	}
 
 	if value != nil {
 		err = udc.loadSchema(kvreader)
 		if err != nil {
 			_ = kvreader.Close()
-			return
+			return err
 		}
 
 		// set doc count
@@ -69,13 +68,13 @@ func (udc *Fuego) Open() (err error) {
 		// new index, close the reader and open writer to init
 		err = kvreader.Close()
 		if err != nil {
-			return
+			return err
 		}
 
 		var kvwriter store.KVWriter
 		kvwriter, err = udc.store.Writer()
 		if err != nil {
-			return
+			return err
 		}
 		defer func() {
 			if cerr := kvwriter.Close(); err == nil && cerr != nil {
@@ -87,23 +86,22 @@ func (udc *Fuego) Open() (err error) {
 		err = udc.init(kvwriter)
 	}
 
-	return
+	return err
 }
 
-func (udc *Fuego) init(kvwriter store.KVWriter) (err error) {
+func (udc *Fuego) init(kvwriter store.KVWriter) error {
 	// version marker
 	rowsAll := [][]KVRow{
 		{NewVersionRow(udc.version)},
 	}
 
-	err = udc.batchRows(kvwriter, nil, rowsAll, nil)
-	return
+	return udc.batchRows(kvwriter, nil, rowsAll, nil)
 }
 
 func (udc *Fuego) loadSchema(kvreader store.KVReader) (err error) {
 	it := kvreader.PrefixIterator([]byte{'f'})
 	defer func() {
-		if cerr := it.Close(); err == nil && cerr != nil {
+		if cerr := it.Close(); cerr != nil && err == nil {
 			err = cerr
 		}
 	}()
@@ -125,6 +123,7 @@ func (udc *Fuego) loadSchema(kvreader store.KVReader) (err error) {
 	if err != nil {
 		return
 	}
+
 	var vr *VersionRow
 	vr, err = NewVersionRowKV([]byte{'v'}, val)
 	if err != nil {
