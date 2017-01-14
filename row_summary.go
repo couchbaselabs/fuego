@@ -22,6 +22,8 @@ import (
 var SummaryKey = []byte{'z'}
 
 type SummaryRow struct {
+	// Decreases from MAX_UINT64 downwards, so that newer, younger
+	// seg's appear earlier in key-val iterators.
 	LastUsedSegId SegId
 }
 

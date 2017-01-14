@@ -52,7 +52,7 @@ func (udc *Fuego) Open() error {
 	}
 
 	if value != nil {
-		err = udc.loadSchema(kvreader)
+		err = udc.loadStoreLOCKED(kvreader)
 		if err != nil {
 			_ = kvreader.Close()
 			return err
@@ -83,22 +83,24 @@ func (udc *Fuego) Open() error {
 		}()
 
 		// init the index
-		err = udc.init(kvwriter)
+		err = udc.initStoreLOCKED(kvwriter)
 	}
 
 	return err
 }
 
-func (udc *Fuego) init(kvwriter store.KVWriter) error {
-	// version marker
+func (udc *Fuego) initStoreLOCKED(kvwriter store.KVWriter) error {
 	rowsAll := [][]KVRow{
-		{NewVersionRow(udc.version)},
+		{
+			NewVersionRow(udc.version),
+			udc.summaryRow,
+		},
 	}
 
 	return udc.batchRows(kvwriter, nil, rowsAll, nil)
 }
 
-func (udc *Fuego) loadSchema(kvreader store.KVReader) (err error) {
+func (udc *Fuego) loadStoreLOCKED(kvreader store.KVReader) (err error) {
 	var val []byte
 	val, err = kvreader.Get(VersionKey)
 	if err != nil {
@@ -115,6 +117,21 @@ func (udc *Fuego) loadSchema(kvreader store.KVReader) (err error) {
 		return
 	}
 
+	// load summary row
+	val, err = kvreader.Get(SummaryKey)
+	if err != nil {
+		return
+	}
+
+	var sr *SummaryRow
+	sr, err = NewSummaryRowKV(SummaryKey, val)
+	if err != nil {
+		return
+	}
+
+	udc.summaryRow = sr
+
+	// load field rows
 	it := kvreader.PrefixIterator([]byte{'f'})
 	defer func() {
 		if cerr := it.Close(); cerr != nil && err == nil {

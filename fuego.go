@@ -39,7 +39,7 @@ type Fuego struct {
 
 	m sync.RWMutex // Protects the fields that follow.
 
-	lastUsedSegId SegId
+	summaryRow *SummaryRow
 
 	docCount uint64
 
@@ -54,7 +54,7 @@ func NewFuego(storeName string, storeConfig map[string]interface{},
 		storeName:     storeName,
 		storeConfig:   storeConfig,
 		analysisQueue: analysisQueue,
-		lastUsedSegId: SegId(math.MaxUint64),
+		summaryRow:    NewSummaryRow(SegId(math.MaxUint64)),
 	}
 	rv.stats = &indexStat{i: rv}
 	return rv, nil

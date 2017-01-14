@@ -128,13 +128,14 @@ func TestDump(t *testing.T) {
 	}
 
 	// 1 version
+	// 1 summaryRow
 	// fieldsCount field rows
 	// 2 docs * expectedDocRowCount
 	// 2 back index rows
 	// 2 text term row count (2 different text terms)
 	// 16 numeric term row counts (shared for both docs, same numeric value)
 	// 16 date term row counts (shared for both docs, same date value)
-	expectedAllRowCount := int(1 + fieldsCount + (2 * expectedDocRowCount) + 2 + 2 + int((2 * (64 / document.DefaultPrecisionStep))))
+	expectedAllRowCount := int(1 + 1 + fieldsCount + (2 * expectedDocRowCount) + 2 + 2 + int((2 * (64 / document.DefaultPrecisionStep))))
 	allRowCount := 0
 	allRows := reader.DumpAll()
 	for range allRows {
