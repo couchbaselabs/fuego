@@ -22,14 +22,20 @@ func (udc *Fuego) SetInternal(key, val []byte) error {
 
 	writer, err := udc.store.Writer()
 	if err != nil {
-		return
+		return err
 	}
-	defer writer.Close()
 
 	batch := writer.NewBatch()
 	batch.Set(internalRow.Key(), internalRow.Value())
 
-	return writer.ExecuteBatch(batch)
+	err = writer.ExecuteBatch(batch)
+
+	cerr := writer.Close()
+	if cerr != nil && err == nil {
+		return cerr
+	}
+
+	return err
 }
 
 func (udc *Fuego) DeleteInternal(key []byte) error {
@@ -40,12 +46,18 @@ func (udc *Fuego) DeleteInternal(key []byte) error {
 
 	writer, err := udc.store.Writer()
 	if err != nil {
-		return
+		return err
 	}
-	defer writer.Close()
 
 	batch := writer.NewBatch()
 	batch.Delete(internalRow.Key())
 
-	return writer.ExecuteBatch(batch)
+	err = writer.ExecuteBatch(batch)
+
+	cerr := writer.Close()
+	if cerr != nil && err == nil {
+		return cerr
+	}
+
+	return err
 }
