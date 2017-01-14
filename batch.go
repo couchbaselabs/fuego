@@ -196,6 +196,23 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	return
 }
 
+func (udc *Fuego) deleteSingle(id string, backIndexRow *BackIndexRow, deleteRows []KVRow) []KVRow {
+	idBytes := []byte(id)
+
+	for _, backIndexEntry := range backIndexRow.termEntries {
+		tfr := NewTermFrequencyRow([]byte(*backIndexEntry.Term), uint16(*backIndexEntry.Field), idBytes, 0, 0)
+		deleteRows = append(deleteRows, tfr)
+	}
+
+	for _, se := range backIndexRow.storedEntries {
+		sf := NewStoredRow(idBytes, uint16(*se.Field), se.ArrayPositions, 'x', nil)
+		deleteRows = append(deleteRows, sf)
+	}
+
+	// also delete the back entry itself
+	return append(deleteRows, backIndexRow)
+}
+
 func (udc *Fuego) batchRows(writer store.KVWriter,
 	addRowsAll [][]KVRow, updateRowsAll [][]KVRow, deleteRowsAll [][]KVRow) (err error) {
 	dictionaryDeltas := make(map[string]int64)
