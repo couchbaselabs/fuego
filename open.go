@@ -99,6 +99,22 @@ func (udc *Fuego) init(kvwriter store.KVWriter) error {
 }
 
 func (udc *Fuego) loadSchema(kvreader store.KVReader) (err error) {
+	var val []byte
+	val, err = kvreader.Get(VersionKey)
+	if err != nil {
+		return
+	}
+
+	var vr *VersionRow
+	vr, err = NewVersionRowKV(VersionKey, val)
+	if err != nil {
+		return
+	}
+	if vr.version != Version {
+		err = IncompatibleVersion
+		return
+	}
+
 	it := kvreader.PrefixIterator([]byte{'f'})
 	defer func() {
 		if cerr := it.Close(); cerr != nil && err == nil {
@@ -106,32 +122,18 @@ func (udc *Fuego) loadSchema(kvreader store.KVReader) (err error) {
 		}
 	}()
 
-	key, val, valid := it.Current()
+	k, v, valid := it.Current()
 	for valid {
 		var fieldRow *FieldRow
-		fieldRow, err = NewFieldRowKV(key, val)
+		fieldRow, err = NewFieldRowKV(k, v)
 		if err != nil {
 			return
 		}
+
 		udc.fieldCache.AddExisting(fieldRow.name, fieldRow.index)
 
 		it.Next()
-		key, val, valid = it.Current()
-	}
-
-	val, err = kvreader.Get([]byte{'v'})
-	if err != nil {
-		return
-	}
-
-	var vr *VersionRow
-	vr, err = NewVersionRowKV([]byte{'v'}, val)
-	if err != nil {
-		return
-	}
-	if vr.version != Version {
-		err = IncompatibleVersion
-		return
+		k, v, valid = it.Current()
 	}
 
 	return
