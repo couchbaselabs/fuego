@@ -19,6 +19,7 @@ package fuego
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/blevesearch/bleve/document"
@@ -38,6 +39,8 @@ type Fuego struct {
 
 	m sync.RWMutex // Protects the fields that follow.
 
+	lastUsedSegId SegId
+
 	docCount uint64
 
 	writeMutex sync.Mutex
@@ -51,6 +54,7 @@ func NewFuego(storeName string, storeConfig map[string]interface{},
 		storeName:     storeName,
 		storeConfig:   storeConfig,
 		analysisQueue: analysisQueue,
+		lastUsedSegId: SegId(math.MaxUint64),
 	}
 	rv.stats = &indexStat{i: rv}
 	return rv, nil
