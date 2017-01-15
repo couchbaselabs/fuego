@@ -44,6 +44,8 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 			return NewInternalRowKV(key, value)
 		case 's':
 			return NewStoredRowKV(key, value)
+		case 'S':
+			return NewSegRecStoredRowKV(key, value)
 		case 't':
 			return NewTermFrequencyRowKV(key, value)
 		case 'v':

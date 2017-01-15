@@ -14,14 +14,11 @@
 
 package fuego
 
-// A "seg" is short-hand for a "segment".
-type SegId uint64
-
-// A "rec" is short-hand for a "record.  A RecId is local to or
-// w.r.t. a specific seg.
-type RecId uint64
-
 type SegRecId struct {
-	SegId SegId
-	RecId RecId
+	// A "seg" is short-hand for a "segment".
+	SegId uint64
+
+	// A "rec" is short-hand for a "record".  A RecId is local to or
+	// w.r.t. a specific seg.
+	RecId uint64
 }

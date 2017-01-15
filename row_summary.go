@@ -24,7 +24,7 @@ var SummaryKey = []byte{'z'}
 type SummaryRow struct {
 	// Decreases from MAX_UINT64 downwards, so that newer, younger
 	// seg's appear earlier in key-val iterators.
-	LastUsedSegId SegId
+	LastUsedSegId uint64
 }
 
 func (dr *SummaryRow) Key() []byte {
@@ -51,7 +51,7 @@ func (dr *SummaryRow) ValueSize() int {
 }
 
 func (dr *SummaryRow) ValueTo(buf []byte) (int, error) {
-	binary.LittleEndian.PutUint64(buf, uint64(dr.LastUsedSegId))
+	binary.LittleEndian.PutUint64(buf, dr.LastUsedSegId)
 	return 8, nil
 }
 
@@ -59,12 +59,12 @@ func (dr *SummaryRow) String() string {
 	return fmt.Sprintf("Summary: LastUsedSegId: %d", dr.LastUsedSegId)
 }
 
-func NewSummaryRow(lastUsedSegId SegId) *SummaryRow {
+func NewSummaryRow(lastUsedSegId uint64) *SummaryRow {
 	return &SummaryRow{LastUsedSegId: lastUsedSegId}
 }
 
 func NewSummaryRowKV(key, value []byte) (*SummaryRow, error) {
 	return &SummaryRow{
-		LastUsedSegId: SegId(binary.LittleEndian.Uint64(value)),
+		LastUsedSegId: binary.LittleEndian.Uint64(value),
 	}, nil
 }

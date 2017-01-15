@@ -65,6 +65,9 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	udc.writeMutex.Lock()
 	defer udc.writeMutex.Unlock()
 
+	// The segId's decrease or drop downwards from MAX_UINT64.
+	udc.summaryRow.LastUsedSegId = udc.summaryRow.LastUsedSegId - 1
+
 	go func() {
 		defer close(docBackIndexRowCh)
 
@@ -134,6 +137,11 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	}
 
 	// process back index rows as they arrive
+	lastSegRecId := SegRecId{
+		SegId: udc.summaryRow.LastUsedSegId,
+		RecId: 0,
+	}
+
 	for dbir := range docBackIndexRowCh {
 		if dbir.doc == nil && dbir.backIndexRow != nil {
 			// delete
@@ -143,7 +151,10 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 			}
 			docsDeleted++
 		} else if dbir.doc != nil {
-			addRows, updateRows, deleteRows := udc.mergeOldAndNew(dbir.backIndexRow, analyzeResults[dbir.docID])
+			lastSegRecId.RecId++
+
+			addRows, updateRows, deleteRows :=
+				udc.mergeOldAndNew(&lastSegRecId, dbir.backIndexRow, analyzeResults[dbir.docID])
 			if len(addRows) > 0 {
 				addRowsAll = append(addRowsAll, addRows)
 			}
@@ -357,9 +368,11 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 	return writer.ExecuteBatch(wb)
 }
 
-func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, ar *AnalyzeAuxResult) (
+func (udc *Fuego) mergeOldAndNew(segRecId *SegRecId, backIndexRow *BackIndexRow, ar *AnalyzeAuxResult) (
 	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
 	numRows := len(ar.FieldRows) + len(ar.TermFreqRows) + len(ar.StoredRows)
+
+	numRows += len(ar.StoredRows) // For SegRecStoredRows.
 
 	if ar.BackIndexRow != nil {
 		numRows += 1
@@ -380,6 +393,12 @@ func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, ar *AnalyzeAuxResul
 
 		if ar.BackIndexRow != nil {
 			addRows = append(addRows, ar.BackIndexRow)
+		}
+
+		// fuego rows...
+
+		for _, row := range ar.StoredRows {
+			addRows = append(addRows, row.ToSegRecStoredRow(segRecId))
 		}
 
 		return addRows, nil, nil
@@ -419,13 +438,16 @@ func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, ar *AnalyzeAuxResul
 			if row.KeySize() > len(keyBuf) {
 				keyBuf = make([]byte, row.KeySize())
 			}
+
 			keySize, _ := row.KeyTo(keyBuf)
 			if _, ok := existingTermKeys[string(keyBuf[:keySize])]; ok {
 				updateRows = append(updateRows, row)
 				delete(existingTermKeys, string(keyBuf[:keySize]))
+
 				continue
 			}
 		}
+
 		addRows = append(addRows, row)
 	}
 
@@ -434,14 +456,21 @@ func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, ar *AnalyzeAuxResul
 			if row.KeySize() > len(keyBuf) {
 				keyBuf = make([]byte, row.KeySize())
 			}
+
 			keySize, _ := row.KeyTo(keyBuf)
 			if _, ok := existingStoredKeys[string(keyBuf[:keySize])]; ok {
 				updateRows = append(updateRows, row)
 				delete(existingStoredKeys, string(keyBuf[:keySize]))
+
+				updateRows = append(updateRows, row.ToSegRecStoredRow(segRecId))
+
 				continue
 			}
 		}
+
 		addRows = append(addRows, row)
+
+		addRows = append(addRows, row.ToSegRecStoredRow(segRecId))
 	}
 
 	updateRows = append(updateRows, ar.BackIndexRow)

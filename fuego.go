@@ -54,7 +54,7 @@ func NewFuego(storeName string, storeConfig map[string]interface{},
 		storeName:     storeName,
 		storeConfig:   storeConfig,
 		analysisQueue: analysisQueue,
-		summaryRow:    NewSummaryRow(SegId(math.MaxUint64)),
+		summaryRow:    NewSummaryRow(math.MaxUint64),
 	}
 	rv.stats = &indexStat{i: rv}
 	return rv, nil

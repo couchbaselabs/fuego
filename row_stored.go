@@ -96,7 +96,7 @@ func NewStoredRowK(key []byte) (*StoredRow, error) {
 	rv := StoredRow{}
 
 	buf := bytes.NewBuffer(key)
-	_, err := buf.ReadByte() // type
+	_, err := buf.ReadByte() // row type
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +126,115 @@ func NewStoredRowK(key []byte) (*StoredRow, error) {
 
 func NewStoredRowKV(key, value []byte) (*StoredRow, error) {
 	rv, err := NewStoredRowK(key)
+	if err != nil {
+		return nil, err
+	}
+
+	rv.typ = value[0]
+	rv.value = value[1:]
+
+	return rv, nil
+}
+
+// -------------------------------------------------
+
+func (s *StoredRow) ToSegRecStoredRow(segRecId *SegRecId) *SegRecStoredRow {
+	return &SegRecStoredRow{
+		segRecId:       *segRecId,
+		field:          s.field,
+		arrayPositions: s.arrayPositions,
+		typ:            s.typ,
+		value:          s.value,
+	}
+}
+
+type SegRecStoredRow struct {
+	segRecId       SegRecId
+	field          uint16
+	arrayPositions []uint64
+	typ            byte
+	value          []byte
+}
+
+func (s *SegRecStoredRow) Key() []byte {
+	buf := make([]byte, s.KeySize())
+	size, _ := s.KeyTo(buf)
+	return buf[0:size]
+}
+
+func (s *SegRecStoredRow) KeySize() int {
+	return 1 + 8 + 8 + 2 + (binary.MaxVarintLen64 * len(s.arrayPositions))
+}
+
+func (s *SegRecStoredRow) KeyTo(buf []byte) (int, error) {
+	buf[0] = 'S'
+	binary.LittleEndian.PutUint64(buf[1:], s.segRecId.SegId)
+	binary.LittleEndian.PutUint64(buf[1+8:], s.segRecId.RecId)
+	binary.LittleEndian.PutUint16(buf[1+8+8:], s.field)
+	bytesUsed := 1 + 8 + 8 + 2
+	for _, arrayPosition := range s.arrayPositions {
+		bytesUsed += binary.PutUvarint(buf[bytesUsed:], arrayPosition)
+	}
+	return bytesUsed, nil
+}
+
+func (s *SegRecStoredRow) Value() []byte {
+	buf := make([]byte, s.ValueSize())
+	size, _ := s.ValueTo(buf)
+	return buf[:size]
+}
+
+func (s *SegRecStoredRow) ValueSize() int {
+	return len(s.value) + 1
+}
+
+func (s *SegRecStoredRow) ValueTo(buf []byte) (int, error) {
+	buf[0] = s.typ
+	used := copy(buf[1:], s.value)
+	return used + 1, nil
+}
+
+func (s *SegRecStoredRow) String() string {
+	return fmt.Sprintf("SegRecId: %v, Field %d, Array Positions: %v, Type: %s Value: %s",
+		s.segRecId, s.field, s.arrayPositions, string(s.typ), s.value)
+}
+
+func NewSegRecStoredRowK(key []byte) (*SegRecStoredRow, error) {
+	rv := &SegRecStoredRow{}
+
+	buf := bytes.NewBuffer(key)
+	_, err := buf.ReadByte() // row type
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Read(buf, binary.LittleEndian, &rv.segRecId.SegId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Read(buf, binary.LittleEndian, &rv.segRecId.RecId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Read(buf, binary.LittleEndian, &rv.field)
+	if err != nil {
+		return nil, err
+	}
+
+	rv.arrayPositions = make([]uint64, 0)
+	nextArrayPos, err := binary.ReadUvarint(buf)
+	for err == nil {
+		rv.arrayPositions = append(rv.arrayPositions, nextArrayPos)
+		nextArrayPos, err = binary.ReadUvarint(buf)
+	}
+
+	return rv, nil
+}
+
+func NewSegRecStoredRowKV(key, value []byte) (*SegRecStoredRow, error) {
+	rv, err := NewSegRecStoredRowK(key)
 	if err != nil {
 		return nil, err
 	}
