@@ -17,8 +17,8 @@ for each batch...
         note that an iterator can Next() through all of the postings columns quickly.
 
     stored fields
-      stored:batch0xffffc-recordId1:field0 -> "user1234" // The docId.
-      stored:batch0xffffc-recordId1:field1 -> "john@email.com"
+      stored:batch0xffffc-recordId1:field0:arrayPositions -> "typ:user1234" // The docId.
+      stored:batch0xffffc-recordId1:field1:arrayPositions -> "typ:john@email.com"
 
         note that an iterator can Next() through all of the stored fields
         of a record quickly.
