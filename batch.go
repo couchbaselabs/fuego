@@ -26,6 +26,7 @@ import (
 
 type docBackIndexRow struct {
 	docID        string
+	docIDBytes   []byte
 	doc          *document.Document // If deletion, doc will be nil.
 	backIndexRow *BackIndexRow
 }
@@ -33,7 +34,7 @@ type docBackIndexRow struct {
 func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	analysisStart := time.Now()
 
-	resultChan := make(chan *index.AnalysisResult, len(batch.IndexOps))
+	analyzeResultCh := make(chan *AnalyzeAuxResult, len(batch.IndexOps))
 
 	var numUpdates uint64
 	var numPlainTextBytes uint64
@@ -47,9 +48,12 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	go func() {
 		for _, doc := range batch.IndexOps {
 			if doc != nil {
-				aw := index.NewAnalysisWork(udc, doc, resultChan)
-				// put the work on the queue
-				udc.analysisQueue.Queue(aw)
+				AnalyzeAuxQueue <- &AnalyzeAuxReq{
+					Index:         udc,
+					Doc:           doc,
+					WantBackIndex: true,
+					ResultCh:      analyzeResultCh,
+				}
 			}
 		}
 	}()
@@ -65,39 +69,35 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 		defer close(docBackIndexRowCh)
 
 		// open a reader for backindex lookup
-		var kvreader store.KVReader
-		kvreader, err = udc.store.Reader()
+		kvreader, err := udc.store.Reader()
 		if err != nil {
 			docBackIndexRowErr = err
 			return
 		}
+		defer kvreader.Close()
 
 		for docID, doc := range batch.IndexOps {
-			backIndexRow, err := backIndexRowForDoc(kvreader, []byte(docID))
+			docIDBytes := []byte(docID)
+
+			backIndexRow, err := backIndexRowForDoc(kvreader, docIDBytes)
 			if err != nil {
 				docBackIndexRowErr = err
 				return
 			}
 
-			docBackIndexRowCh <- &docBackIndexRow{docID, doc, backIndexRow}
-		}
-
-		err = kvreader.Close()
-		if err != nil {
-			docBackIndexRowErr = err
-			return
+			docBackIndexRowCh <- &docBackIndexRow{docID, docIDBytes, doc, backIndexRow}
 		}
 	}()
 
 	// wait for analysis result
-	newRowsMap := make(map[string][]index.IndexRow)
+	analyzeResults := map[string]*AnalyzeAuxResult{}
 	var itemsDeQueued uint64
 	for itemsDeQueued < numUpdates {
-		result := <-resultChan
-		newRowsMap[result.DocID] = result.Rows
+		analyzeResult := <-analyzeResultCh
+		analyzeResults[analyzeResult.DocID] = analyzeResult
 		itemsDeQueued++
 	}
-	close(resultChan)
+	close(analyzeResultCh)
 
 	atomic.AddUint64(&udc.stats.analysisTime, uint64(time.Since(analysisStart)))
 
@@ -137,13 +137,13 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	for dbir := range docBackIndexRowCh {
 		if dbir.doc == nil && dbir.backIndexRow != nil {
 			// delete
-			deleteRows := udc.deleteSingle(dbir.docID, dbir.backIndexRow, nil)
+			deleteRows := udc.deleteSingle(dbir.docIDBytes, dbir.backIndexRow, nil)
 			if len(deleteRows) > 0 {
 				deleteRowsAll = append(deleteRowsAll, deleteRows)
 			}
 			docsDeleted++
 		} else if dbir.doc != nil {
-			addRows, updateRows, deleteRows := udc.mergeOldAndNew(dbir.backIndexRow, newRowsMap[dbir.docID])
+			addRows, updateRows, deleteRows := udc.mergeOldAndNew(dbir.backIndexRow, analyzeResults[dbir.docID])
 			if len(addRows) > 0 {
 				addRowsAll = append(addRowsAll, addRows)
 			}
@@ -196,9 +196,7 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	return
 }
 
-func (udc *Fuego) deleteSingle(id string, backIndexRow *BackIndexRow, deleteRows []KVRow) []KVRow {
-	idBytes := []byte(id)
-
+func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow, deleteRows []KVRow) []KVRow {
 	for _, backIndexEntry := range backIndexRow.termEntries {
 		tfr := NewTermFrequencyRow([]byte(*backIndexEntry.Term), uint16(*backIndexEntry.Field), idBytes, 0, 0)
 		deleteRows = append(deleteRows, tfr)
@@ -209,7 +207,7 @@ func (udc *Fuego) deleteSingle(id string, backIndexRow *BackIndexRow, deleteRows
 		deleteRows = append(deleteRows, sf)
 	}
 
-	// also delete the back entry itself
+	// also delete the backIndexRow itself
 	return append(deleteRows, backIndexRow)
 }
 
@@ -359,20 +357,36 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 	return writer.ExecuteBatch(wb)
 }
 
-func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, rows []index.IndexRow) (
+func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, ar *AnalyzeAuxResult) (
 	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
-	addRows = make([]KVRow, 0, len(rows))
+	numRows := len(ar.FieldRows) + len(ar.TermFreqRows) + len(ar.StoredRows)
+
+	if ar.BackIndexRow != nil {
+		numRows += 1
+	}
+
+	addRows = make([]KVRow, 0, numRows)
 
 	if backIndexRow == nil {
-		addRows = addRows[0:len(rows)]
-		for i, row := range rows {
-			addRows[i] = row
+		for _, row := range ar.FieldRows {
+			addRows = append(addRows, row)
 		}
+		for _, row := range ar.TermFreqRows {
+			addRows = append(addRows, row)
+		}
+		for _, row := range ar.StoredRows {
+			addRows = append(addRows, row)
+		}
+
+		if ar.BackIndexRow != nil {
+			addRows = append(addRows, ar.BackIndexRow)
+		}
+
 		return addRows, nil, nil
 	}
 
-	updateRows = make([]KVRow, 0, len(rows))
-	deleteRows = make([]KVRow, 0, len(rows))
+	updateRows = make([]KVRow, 0, numRows)
+	deleteRows = make([]KVRow, 0, numRows)
 
 	var mark struct{}
 
@@ -395,38 +409,43 @@ func (udc *Fuego) mergeOldAndNew(backIndexRow *BackIndexRow, rows []index.IndexR
 	}
 
 	keyBuf := GetRowBuffer()
-	for _, row := range rows {
-		switch row := row.(type) {
-		case *TermFrequencyRow:
-			if existingTermKeys != nil {
-				if row.KeySize() > len(keyBuf) {
-					keyBuf = make([]byte, row.KeySize())
-				}
-				keySize, _ := row.KeyTo(keyBuf)
-				if _, ok := existingTermKeys[string(keyBuf[:keySize])]; ok {
-					updateRows = append(updateRows, row)
-					delete(existingTermKeys, string(keyBuf[:keySize]))
-					continue
-				}
-			}
-			addRows = append(addRows, row)
-		case *StoredRow:
-			if existingStoredKeys != nil {
-				if row.KeySize() > len(keyBuf) {
-					keyBuf = make([]byte, row.KeySize())
-				}
-				keySize, _ := row.KeyTo(keyBuf)
-				if _, ok := existingStoredKeys[string(keyBuf[:keySize])]; ok {
-					updateRows = append(updateRows, row)
-					delete(existingStoredKeys, string(keyBuf[:keySize]))
-					continue
-				}
-			}
-			addRows = append(addRows, row)
-		default:
-			updateRows = append(updateRows, row)
-		}
+
+	for _, row := range ar.FieldRows {
+		updateRows = append(updateRows, row)
 	}
+
+	for _, row := range ar.TermFreqRows {
+		if existingTermKeys != nil {
+			if row.KeySize() > len(keyBuf) {
+				keyBuf = make([]byte, row.KeySize())
+			}
+			keySize, _ := row.KeyTo(keyBuf)
+			if _, ok := existingTermKeys[string(keyBuf[:keySize])]; ok {
+				updateRows = append(updateRows, row)
+				delete(existingTermKeys, string(keyBuf[:keySize]))
+				continue
+			}
+		}
+		addRows = append(addRows, row)
+	}
+
+	for _, row := range ar.StoredRows {
+		if existingStoredKeys != nil {
+			if row.KeySize() > len(keyBuf) {
+				keyBuf = make([]byte, row.KeySize())
+			}
+			keySize, _ := row.KeyTo(keyBuf)
+			if _, ok := existingStoredKeys[string(keyBuf[:keySize])]; ok {
+				updateRows = append(updateRows, row)
+				delete(existingStoredKeys, string(keyBuf[:keySize]))
+				continue
+			}
+		}
+		addRows = append(addRows, row)
+	}
+
+	updateRows = append(updateRows, ar.BackIndexRow)
+
 	PutRowBuffer(keyBuf)
 
 	// any of the existing rows that weren't updated need to be deleted
