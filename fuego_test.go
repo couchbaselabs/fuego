@@ -169,8 +169,8 @@ func TestIndexInsert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 1 for single term, and 1 for the term count, and 1 for the back index entry)
-	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 1 for single term, and 1 for the term count, and 1 for the back index entry, and 1 for docIDRow)
+	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 1)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -297,8 +297,8 @@ func TestIndexInsertThenDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for dictionary row garbage)
-	expectedLength := uint64(1 + 1 + 1 + 1)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for dictionary row garbage, 2 for docIDRow garbage)
+	expectedLength := uint64(1 + 1 + 1 + 1 + 2)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -347,8 +347,8 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Errorf("Error deleting entry from index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 2 for the two term, and 2 for the term counts, and 1 for the back index entry)
-	expectedLength := uint64(1 + 1 + 1 + 2 + 2 + 1)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 2 for the two term, and 2 for the term counts, and 1 for the back index entry, and 2 for the docIDRows)
+	expectedLength := uint64(1 + 1 + 1 + 2 + 2 + 1 + 2)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -365,8 +365,8 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Errorf("Error deleting entry from index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 1 for the remaining term, and 2 for the term diciontary, and 1 for the back index entry)
-	expectedLength = uint64(1 + 1 + 1 + 1 + 2 + 1)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 1 for the remaining term, and 2 for the term diciontary, and 1 for the back index entry, and 3 for the docIDRows)
+	expectedLength = uint64(1 + 1 + 1 + 1 + 2 + 1 + 3)
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -412,8 +412,8 @@ func TestIndexInsertMultiple(t *testing.T) {
 	}
 	expectedCount++
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 2 for single term, and 1 for the term count, and 2 for the back index entries)
-	expectedLength := uint64(1 + 1 + 1 + 2 + 1 + 2)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 2 for single term, and 1 for the term count, and 2 for the back index entries, and 2 for the docIDRows)
+	expectedLength := uint64(1 + 1 + 1 + 2 + 1 + 2 + 2)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -533,8 +533,8 @@ func TestIndexInsertWithStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 1 for single term, and 1 for the stored field and 1 for the segRecStored field and 1 for the term count, and 1 for the back index entry)
-	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 1 + 1)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, and 1 for single term, and 1 for the stored field and 1 for the segRecStored field and 1 for the term count, and 1 for the back index entry, and 1 for the docIDRow)
+	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -849,7 +849,8 @@ func TestIndexInsertUpdateDeleteWithMultipleTypesStored(t *testing.T) {
 	// 16 for numeric term counts
 	// 16 for date term counts
 	// 1 for the back index entry
-	expectedLength := uint64(1 + 1 + 3 + 1 + (64 / document.DefaultPrecisionStep) + (64 / document.DefaultPrecisionStep) + 3 + 3 + 1 + (64 / document.DefaultPrecisionStep) + (64 / document.DefaultPrecisionStep) + 1)
+	// 1 for the docIDRow
+	expectedLength := uint64(1 + 1 + 3 + 1 + (64 / document.DefaultPrecisionStep) + (64 / document.DefaultPrecisionStep) + 3 + 3 + 1 + (64 / document.DefaultPrecisionStep) + (64 / document.DefaultPrecisionStep) + 1 + 1)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -1044,7 +1045,6 @@ func TestIndexInsertFields(t *testing.T) {
 			t.Errorf("expected fields: %v, got %v", expectedFields, fields)
 		}
 	}
-
 }
 
 func TestIndexUpdateComposites(t *testing.T) {
@@ -1088,7 +1088,8 @@ func TestIndexUpdateComposites(t *testing.T) {
 	// 2 for the segRecStored field
 	// 4 for the text term count
 	// 1 for the back index entry
-	expectedLength := uint64(1 + 1 + 3 + 4 + 2 + 2 + 4 + 1)
+	// 1 for the docIDRow
+	expectedLength := uint64(1 + 1 + 3 + 4 + 2 + 2 + 4 + 1 + 1)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -1134,8 +1135,8 @@ func TestIndexUpdateComposites(t *testing.T) {
 		t.Errorf("expected field content 'test', got '%s'", string(textField.Value()))
 	}
 
-	// should have the same row count as before, plus 4 term dictionary garbage rows and 2 SegRecStored rows
-	expectedLength += 4 + 2
+	// should have the same row count as before, plus 4 term dictionary garbage rows and 2 SegRecStored rows and 1 DocIDRow
+	expectedLength += 4 + 2 + 1
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)

@@ -370,12 +370,16 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 
 func (udc *Fuego) mergeOldAndNew(segRecId *SegRecId, backIndexRow *BackIndexRow, ar *AnalyzeAuxResult) (
 	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
+	docIDRow := NewDocIDRow(ar.DocIDBytes, segRecId.SegId, segRecId.RecId)
+
 	numRows := len(ar.FieldRows) + len(ar.TermFreqRows) + len(ar.StoredRows)
 
-	numRows += len(ar.StoredRows) // For SegRecStoredRows.
+	numRows += len(ar.StoredRows) // For SegRecStoredRow's.
 
 	if ar.BackIndexRow != nil {
 		numRows += 1
+
+		numRows += 1 // For docIDRow.
 	}
 
 	addRows = make([]KVRow, 0, numRows)
@@ -396,6 +400,8 @@ func (udc *Fuego) mergeOldAndNew(segRecId *SegRecId, backIndexRow *BackIndexRow,
 		}
 
 		// fuego rows...
+
+		addRows = append(addRows, docIDRow)
 
 		for _, row := range ar.StoredRows {
 			addRows = append(addRows, row.ToSegRecStoredRow(segRecId))
@@ -473,7 +479,11 @@ func (udc *Fuego) mergeOldAndNew(segRecId *SegRecId, backIndexRow *BackIndexRow,
 		addRows = append(addRows, row.ToSegRecStoredRow(segRecId))
 	}
 
-	updateRows = append(updateRows, ar.BackIndexRow)
+	if ar.BackIndexRow != nil {
+		updateRows = append(updateRows, ar.BackIndexRow)
+	}
+
+	updateRows = append(updateRows, docIDRow)
 
 	PutRowBuffer(keyBuf)
 

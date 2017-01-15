@@ -24,8 +24,8 @@ for each batch...
         of a record quickly.
 
     docId lookups // Newer batchId's appear first since batchId's grow downwards.
-      docId:user1234-batch0xffffc -> recordId1
-      docId:user1234-batch0xffffe -> recordId1
+      docId:user1234(0x00)batch0xffffc -> recordId1
+      docId:user1234(0x00)batch0xffffe -> recordId1
 
         note that an iterator can find the most recent batch for a docId
         and Next() through a docId's history quickly.
@@ -42,8 +42,8 @@ asynchronous GC's of key-val's
 
     scan the counts to see which batches might have the most garbage?
 
-    for example, "docId:user1234-batch0xffffe" is outdated
-      due to the newer, younger "docId:user1234-batch0xffffc" record...
+    for example, "docId:user1234(0x00)batch0xffffe" is outdated
+      due to the newer, younger "docId:user1234(0x00)batch0xffffc" record...
 
       so also need to delete...
         "deletion:batch0xffffe-recordId1"

@@ -34,6 +34,10 @@ type KVRow interface {
 func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 	if len(key) > 0 {
 		switch key[0] {
+		case 'D':
+			return NewDocIDRowKV(key, value)
+		case 'S':
+			return NewSegRecStoredRowKV(key, value)
 		case 'b':
 			return NewBackIndexRowKV(key, value)
 		case 'd':
@@ -44,8 +48,6 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 			return NewInternalRowKV(key, value)
 		case 's':
 			return NewStoredRowKV(key, value)
-		case 'S':
-			return NewSegRecStoredRowKV(key, value)
 		case 't':
 			return NewTermFrequencyRowKV(key, value)
 		case 'v':
