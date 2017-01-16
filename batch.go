@@ -85,10 +85,6 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		}
 	}()
 
-	batchEntriesPre := make([]batchEntry, len(batch.IndexOps))           // Prealloc'ed.
-	batchEntriesArr := make(batchEntries, 0, len(batch.IndexOps))        // Sorted by docID.
-	batchEntriesMap := make(map[string]*batchEntry, len(batch.IndexOps)) // Keyed by docID.
-
 	docBackIndexRowErr := error(nil)
 	docBackIndexRowCh := make(chan *docBackIndexRow, len(batch.IndexOps))
 
@@ -125,6 +121,10 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	// TODO: Retrieve docIDRow's concurrent with analysis.
 
 	// Wait for analyze results.
+	batchEntriesPre := make([]batchEntry, len(batch.IndexOps))           // Prealloc'ed.
+	batchEntriesArr := make(batchEntries, 0, len(batch.IndexOps))        // Sorted by docID.
+	batchEntriesMap := make(map[string]*batchEntry, len(batch.IndexOps)) // Keyed by docID.
+
 	var numBatchEntries int
 
 	for numBatchEntries < numUpdates {
