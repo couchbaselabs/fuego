@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -59,6 +60,24 @@ func (a batchEntries) Less(i, j int) bool {
 type fieldTerm struct {
 	field uint16
 	term  string
+}
+
+type fieldTerms []fieldTerm
+
+func (a fieldTerms) Len() int {
+	return len(a)
+}
+
+func (a fieldTerms) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+
+func (a fieldTerms) Less(i, j int) bool {
+	if a[i].field < a[j].field {
+		return true
+	}
+
+	return strings.Compare(a[i].term, a[j].term) < 0
 }
 
 // --------------------------------------------------
@@ -175,7 +194,8 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		numTermFreqRows += len(batchEntry.analyzeResult.TermFreqRows)
 	}
 
-	// Fill the fieldTermBatchEntryTFRs map.
+	// Fill the fieldTerms and fieldTermBatchEntryTFRs map.
+	fieldTerms := fieldTerms(nil)
 	fieldTermBatchEntryTFRs := map[fieldTerm][]*batchEntryTFR{}
 
 	batchEntryTFRPre := make([]batchEntryTFR, numTermFreqRows)
@@ -191,10 +211,18 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 			batchEntryTFR.batchEntry = batchEntry
 			batchEntryTFR.termFreqRowIdx = tfrIdx
 
+			batchEntryTFRs := fieldTermBatchEntryTFRs[fieldTerm]
+			if batchEntryTFRs == nil {
+				fieldTerms = append(fieldTerms, fieldTerm)
+			}
+
 			fieldTermBatchEntryTFRs[fieldTerm] =
-				append(fieldTermBatchEntryTFRs[fieldTerm], batchEntryTFR)
+				append(batchEntryTFRs, batchEntryTFR)
 		}
 	}
+
+	// Sort the fieldTerms by field ASC, term ASC.
+	sort.Sort(fieldTerms)
 
 	docsAdded := uint64(0)
 	docsDeleted := uint64(0)
