@@ -15,7 +15,9 @@
 package fuego
 
 import (
+	"bytes"
 	"encoding/binary"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -31,13 +33,37 @@ type docBackIndexRow struct {
 	backIndexRow *BackIndexRow
 }
 
-func (udc *Fuego) Batch(batch *index.Batch) (err error) {
+// --------------------------------------------------
+
+type batchEntry struct {
+	analyzeResult *AnalyzeAuxResult
+	recId         uint64
+}
+
+type batchEntries []*batchEntry
+
+func (a batchEntries) Len() int {
+	return len(a)
+}
+
+func (a batchEntries) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+
+func (a batchEntries) Less(i, j int) bool {
+	return bytes.Compare(a[i].analyzeResult.DocIDBytes, a[j].analyzeResult.DocIDBytes) < 0
+}
+
+// --------------------------------------------------
+
+func (udc *Fuego) Batch(batch *index.Batch) error {
 	analysisStart := time.Now()
 
 	analyzeResultCh := make(chan *AnalyzeAuxResult, len(batch.IndexOps))
 
-	var numUpdates uint64
+	var numUpdates int
 	var numPlainTextBytes uint64
+
 	for _, doc := range batch.IndexOps {
 		if doc != nil {
 			numUpdates++
@@ -48,6 +74,7 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	go func() {
 		for _, doc := range batch.IndexOps {
 			if doc != nil {
+				// TODO: Change WantBackIndex to false when 100% fuego.
 				AnalyzeAuxQueue <- &AnalyzeAuxReq{
 					Index:         udc,
 					Doc:           doc,
@@ -58,20 +85,23 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 		}
 	}()
 
-	// retrieve back index rows concurrent with analysis
+	batchEntriesPre := make([]batchEntry, len(batch.IndexOps))           // Prealloc'ed.
+	batchEntriesArr := make(batchEntries, 0, len(batch.IndexOps))        // Sorted by docID.
+	batchEntriesMap := make(map[string]*batchEntry, len(batch.IndexOps)) // Keyed by docID.
+
 	docBackIndexRowErr := error(nil)
 	docBackIndexRowCh := make(chan *docBackIndexRow, len(batch.IndexOps))
 
 	udc.writeMutex.Lock()
 	defer udc.writeMutex.Unlock()
 
-	// The segId's decrease or drop downwards from MAX_UINT64.
+	// The segId's decrease or drop downwards from MAX_UINT64,
+	// which allows newer/younger seg's to appear first in iterators.
 	udc.summaryRow.LastUsedSegId = udc.summaryRow.LastUsedSegId - 1
 
-	go func() {
+	go func() { // Retrieve back index rows concurrent with analysis.
 		defer close(docBackIndexRowCh)
 
-		// open a reader for backindex lookup
 		kvreader, err := udc.store.Reader()
 		if err != nil {
 			docBackIndexRowErr = err
@@ -92,35 +122,53 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 		}
 	}()
 
-	// wait for analysis result
-	analyzeResults := map[string]*AnalyzeAuxResult{}
-	var itemsDeQueued uint64
-	for itemsDeQueued < numUpdates {
+	// TODO: Retrieve docIDRow's concurrent with analysis.
+
+	// Wait for analyze results.
+	var numBatchEntries int
+
+	for numBatchEntries < numUpdates {
 		analyzeResult := <-analyzeResultCh
-		analyzeResults[analyzeResult.DocID] = analyzeResult
-		itemsDeQueued++
+
+		batchEntry := &batchEntriesPre[numBatchEntries]
+		batchEntry.analyzeResult = analyzeResult
+
+		batchEntriesArr = append(batchEntriesArr, batchEntry)
+
+		batchEntriesMap[analyzeResult.DocID] = batchEntry
+
+		numBatchEntries++
 	}
+
 	close(analyzeResultCh)
 
 	atomic.AddUint64(&udc.stats.analysisTime, uint64(time.Since(analysisStart)))
 
+	indexStart := time.Now()
+
+	sort.Sort(batchEntriesArr) // Sort batchEntriesArr by docID ASC.
+
+	// Assign recId's, starting from 1, based on the position of each
+	// docID in the sorted docID's.
+	nextRecId := uint64(1)
+	for _, batchEntry := range batchEntriesArr {
+		batchEntry.recId = nextRecId
+		nextRecId++
+	}
+
 	docsAdded := uint64(0)
 	docsDeleted := uint64(0)
 
-	indexStart := time.Now()
-
-	// prepare a list of rows
 	var addRowsAll [][]KVRow
 	var updateRowsAll [][]KVRow
 	var deleteRowsAll [][]KVRow
 
-	// add the internal ops
+	// Add the internal ops.
 	var updateRows []KVRow
 	var deleteRows []KVRow
 
 	for internalKey, internalValue := range batch.InternalOps {
 		if internalValue == nil {
-			// delete
 			deleteInternalRow := NewInternalRow([]byte(internalKey), nil)
 			deleteRows = append(deleteRows, deleteInternalRow)
 		} else {
@@ -136,25 +184,19 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 		deleteRowsAll = append(deleteRowsAll, deleteRows)
 	}
 
-	// process back index rows as they arrive
-	lastSegRecId := SegRecId{
-		SegId: udc.summaryRow.LastUsedSegId,
-		RecId: 0,
-	}
-
+	// Process back index rows as they arrive.
 	for dbir := range docBackIndexRowCh {
-		if dbir.doc == nil && dbir.backIndexRow != nil {
-			// delete
-			deleteRows := udc.deleteSingle(dbir.docIDBytes, dbir.backIndexRow, nil)
-			if len(deleteRows) > 0 {
-				deleteRowsAll = append(deleteRowsAll, deleteRows)
+		if dbir.doc == nil {
+			if dbir.backIndexRow != nil { // A deletion.
+				deleteRows := udc.deleteSingle(dbir.docIDBytes, dbir.backIndexRow, nil)
+				if len(deleteRows) > 0 {
+					deleteRowsAll = append(deleteRowsAll, deleteRows)
+				}
+				docsDeleted++
 			}
-			docsDeleted++
-		} else if dbir.doc != nil {
-			lastSegRecId.RecId++
-
-			addRows, updateRows, deleteRows :=
-				udc.mergeOldAndNew(&lastSegRecId, dbir.backIndexRow, analyzeResults[dbir.docID])
+		} else {
+			addRows, updateRows, deleteRows := udc.mergeOldAndNew(
+				udc.summaryRow.LastUsedSegId, dbir.backIndexRow, batchEntriesMap[dbir.docID])
 			if len(addRows) > 0 {
 				addRowsAll = append(addRowsAll, addRows)
 			}
@@ -175,36 +217,36 @@ func (udc *Fuego) Batch(batch *index.Batch) (err error) {
 	}
 
 	// start a writer for this batch
-	var kvwriter store.KVWriter
-	kvwriter, err = udc.store.Writer()
+	kvwriter, err := udc.store.Writer()
 	if err != nil {
-		return
+		return err
 	}
 
 	err = udc.batchRows(kvwriter, addRowsAll, updateRowsAll, deleteRowsAll)
-	if err != nil {
-		_ = kvwriter.Close()
-		atomic.AddUint64(&udc.stats.errors, 1)
-		return
-	}
 
-	err = kvwriter.Close()
+	cerr := kvwriter.Close()
+	if cerr != nil && err == nil {
+		err = cerr
+	}
 
 	atomic.AddUint64(&udc.stats.indexTime, uint64(time.Since(indexStart)))
 
-	if err == nil {
-		udc.m.Lock()
-		udc.docCount += docsAdded
-		udc.docCount -= docsDeleted
-		udc.m.Unlock()
-		atomic.AddUint64(&udc.stats.updates, numUpdates)
-		atomic.AddUint64(&udc.stats.deletes, docsDeleted)
-		atomic.AddUint64(&udc.stats.batches, 1)
-		atomic.AddUint64(&udc.stats.numPlainTextBytesIndexed, numPlainTextBytes)
-	} else {
+	if err != nil {
 		atomic.AddUint64(&udc.stats.errors, 1)
+		return err
 	}
-	return
+
+	udc.m.Lock()
+	udc.docCount += docsAdded
+	udc.docCount -= docsDeleted
+	udc.m.Unlock()
+
+	atomic.AddUint64(&udc.stats.updates, uint64(numUpdates))
+	atomic.AddUint64(&udc.stats.deletes, docsDeleted)
+	atomic.AddUint64(&udc.stats.batches, 1)
+	atomic.AddUint64(&udc.stats.numPlainTextBytesIndexed, numPlainTextBytes)
+
+	return nil
 }
 
 func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow, deleteRows []KVRow) []KVRow {
@@ -368,9 +410,11 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 	return writer.ExecuteBatch(wb)
 }
 
-func (udc *Fuego) mergeOldAndNew(segRecId *SegRecId, backIndexRow *BackIndexRow, ar *AnalyzeAuxResult) (
+func (udc *Fuego) mergeOldAndNew(segId uint64, backIndexRow *BackIndexRow, batchEntry *batchEntry) (
 	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
-	docIDRow := NewDocIDRow(ar.DocIDBytes, segRecId.SegId, segRecId.RecId)
+	ar := batchEntry.analyzeResult
+
+	docIDRow := NewDocIDRow(ar.DocIDBytes, segId, batchEntry.recId)
 
 	numRows := len(ar.FieldRows) + len(ar.TermFreqRows) + len(ar.StoredRows)
 
@@ -404,7 +448,7 @@ func (udc *Fuego) mergeOldAndNew(segRecId *SegRecId, backIndexRow *BackIndexRow,
 		addRows = append(addRows, docIDRow)
 
 		for _, row := range ar.StoredRows {
-			addRows = append(addRows, row.ToSegRecStoredRow(segRecId))
+			addRows = append(addRows, row.ToSegRecStoredRow(segId, batchEntry.recId))
 		}
 
 		return addRows, nil, nil
@@ -468,7 +512,8 @@ func (udc *Fuego) mergeOldAndNew(segRecId *SegRecId, backIndexRow *BackIndexRow,
 				updateRows = append(updateRows, row)
 				delete(existingStoredKeys, string(keyBuf[:keySize]))
 
-				updateRows = append(updateRows, row.ToSegRecStoredRow(segRecId))
+				updateRows = append(updateRows,
+					row.ToSegRecStoredRow(segId, batchEntry.recId))
 
 				continue
 			}
@@ -476,7 +521,8 @@ func (udc *Fuego) mergeOldAndNew(segRecId *SegRecId, backIndexRow *BackIndexRow,
 
 		addRows = append(addRows, row)
 
-		addRows = append(addRows, row.ToSegRecStoredRow(segRecId))
+		addRows = append(addRows,
+			row.ToSegRecStoredRow(segId, batchEntry.recId))
 	}
 
 	if ar.BackIndexRow != nil {

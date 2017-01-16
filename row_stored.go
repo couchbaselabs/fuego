@@ -138,9 +138,9 @@ func NewStoredRowKV(key, value []byte) (*StoredRow, error) {
 
 // -------------------------------------------------
 
-func (s *StoredRow) ToSegRecStoredRow(segRecId *SegRecId) *SegRecStoredRow {
+func (s *StoredRow) ToSegRecStoredRow(segId uint64, recId uint64) *SegRecStoredRow {
 	return &SegRecStoredRow{
-		segRecId:       *segRecId,
+		segRecId:       SegRecId{segId, recId},
 		field:          s.field,
 		arrayPositions: s.arrayPositions,
 		typ:            s.typ,
