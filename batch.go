@@ -56,6 +56,20 @@ func (a batchEntries) Less(i, j int) bool {
 
 // --------------------------------------------------
 
+type fieldTerm struct {
+	field uint16
+	term  string
+}
+
+// --------------------------------------------------
+
+type batchEntryTFR struct {
+	batchEntry     *batchEntry
+	termFreqRowIdx int // Index into batchEntry.analyzeResult.TermFreqRows array.
+}
+
+// --------------------------------------------------
+
 func (udc *Fuego) Batch(batch *index.Batch) error {
 	analysisStart := time.Now()
 
@@ -151,9 +165,35 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	// Assign recId's, starting from 1, based on the position of each
 	// docID in the sorted docID's.
 	nextRecId := uint64(1)
+
+	var numTermFreqRows int
+
 	for _, batchEntry := range batchEntriesArr {
 		batchEntry.recId = nextRecId
 		nextRecId++
+
+		numTermFreqRows += len(batchEntry.analyzeResult.TermFreqRows)
+	}
+
+	// Fill the fieldTermBatchEntryTFRs map.
+	fieldTermBatchEntryTFRs := map[fieldTerm][]*batchEntryTFR{}
+
+	batchEntryTFRPre := make([]batchEntryTFR, numTermFreqRows)
+	batchEntryTFRUsed := 0
+
+	for _, batchEntry := range batchEntriesArr {
+		for tfrIdx, tfr := range batchEntry.analyzeResult.TermFreqRows {
+			fieldTerm := fieldTerm{tfr.field, string(tfr.term)}
+
+			batchEntryTFR := &batchEntryTFRPre[batchEntryTFRUsed]
+			batchEntryTFRUsed += 1
+
+			batchEntryTFR.batchEntry = batchEntry
+			batchEntryTFR.termFreqRowIdx = tfrIdx
+
+			fieldTermBatchEntryTFRs[fieldTerm] =
+				append(fieldTermBatchEntryTFRs[fieldTerm], batchEntryTFR)
+		}
 	}
 
 	docsAdded := uint64(0)
