@@ -1,15 +1,19 @@
 for each batch...
 
   assign a unique, ever-decreasing segId (uint64) which starts from MAX_UINT64,
-    which allows newer batches to show up first in an ordered key-val store.
+    which allows newer seg's to show up first in an ordered key-val store.
 
   sort the docId's ASC
     []*AnalyzeAuxResult
     map[docId]*AnalyzeAuxResult
 
-  assign the recId's based on the position of a docID position in the sorted array of docID's
+  assign the recId's based on the position of each docID in the sorted array of docID's
 
-  sort the TermFreqRows in each AnalyzeAuxResult by field
+  fill a map[term][]TermFreqRow, where the arrays will be sorted by recId's.
+
+  sort the map keys by term.
+
+  use that to construct the postings.
 
   for each doc in the batch...
 
