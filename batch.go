@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"sort"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -53,31 +52,6 @@ func (a batchEntries) Swap(i, j int) {
 
 func (a batchEntries) Less(i, j int) bool {
 	return bytes.Compare(a[i].analyzeResult.DocIDBytes, a[j].analyzeResult.DocIDBytes) < 0
-}
-
-// --------------------------------------------------
-
-type fieldTerm struct {
-	field uint16
-	term  string
-}
-
-type fieldTerms []fieldTerm
-
-func (a fieldTerms) Len() int {
-	return len(a)
-}
-
-func (a fieldTerms) Swap(i, j int) {
-	a[i], a[j] = a[j], a[i]
-}
-
-func (a fieldTerms) Less(i, j int) bool {
-	if a[i].field < a[j].field {
-		return true
-	}
-
-	return strings.Compare(a[i].term, a[j].term) < 0
 }
 
 // --------------------------------------------------
