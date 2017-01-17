@@ -168,11 +168,11 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		numTermFreqRows += len(batchEntry.analyzeResult.TermFreqRows)
 	}
 
-	// Fill the fieldTerms and fieldTermBatchEntryTFRs map.
+	// Fill the fieldTerms array and fieldTermBatchEntryTFRs map.
 	fieldTerms := fieldTerms(nil)
 	fieldTermBatchEntryTFRs := map[fieldTerm][]*batchEntryTFR{}
 
-	batchEntryTFRPre := make([]batchEntryTFR, numTermFreqRows)
+	batchEntryTFRPre := make([]batchEntryTFR, numTermFreqRows) // Prealloc'ed.
 	batchEntryTFRUsed := 0
 
 	for _, batchEntry := range batchEntriesArr {
@@ -190,6 +190,10 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 				fieldTerms = append(fieldTerms, fieldTerm)
 			}
 
+			// Since we are driving the loop from the sorted
+			// batchEntriesArr, the array values in the
+			// fieldTermBatchEntryTFRs will inherit the docID / recId
+			// ASC ordering.
 			fieldTermBatchEntryTFRs[fieldTerm] =
 				append(batchEntryTFRs, batchEntryTFR)
 		}
@@ -198,35 +202,37 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	// Sort the fieldTerms by field ASC, term ASC.
 	sort.Sort(fieldTerms)
 
-	docsAdded := uint64(0)
-	docsDeleted := uint64(0)
-
 	var addRowsAll [][]KVRow
 	var updateRowsAll [][]KVRow
 	var deleteRowsAll [][]KVRow
 
 	// Add the internal ops.
-	var updateRows []KVRow
-	var deleteRows []KVRow
+	if len(batch.InternalOps) > 0 {
+		var updateRows []KVRow
+		var deleteRows []KVRow
 
-	for internalKey, internalValue := range batch.InternalOps {
-		if internalValue == nil {
-			deleteInternalRow := NewInternalRow([]byte(internalKey), nil)
-			deleteRows = append(deleteRows, deleteInternalRow)
-		} else {
-			updateInternalRow := NewInternalRow([]byte(internalKey), internalValue)
-			updateRows = append(updateRows, updateInternalRow)
+		for internalKey, internalValue := range batch.InternalOps {
+			if internalValue == nil {
+				deleteInternalRow := NewInternalRow([]byte(internalKey), nil)
+				deleteRows = append(deleteRows, deleteInternalRow)
+			} else {
+				updateInternalRow := NewInternalRow([]byte(internalKey), internalValue)
+				updateRows = append(updateRows, updateInternalRow)
+			}
+		}
+
+		if len(updateRows) > 0 {
+			updateRowsAll = append(updateRowsAll, updateRows)
+		}
+		if len(deleteRows) > 0 {
+			deleteRowsAll = append(deleteRowsAll, deleteRows)
 		}
 	}
 
-	if len(updateRows) > 0 {
-		updateRowsAll = append(updateRowsAll, updateRows)
-	}
-	if len(deleteRows) > 0 {
-		deleteRowsAll = append(deleteRowsAll, deleteRows)
-	}
-
 	// Process back index rows as they arrive.
+	docsAdded := uint64(0)
+	docsDeleted := uint64(0)
+
 	for dbir := range docBackIndexRowCh {
 		if dbir.doc == nil {
 			if dbir.backIndexRow != nil { // A deletion.
