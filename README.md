@@ -63,26 +63,26 @@ For each incoming batch, fuego does...
         countBatchDeletions:batch0xffffe -> 1
         countBatchSize:batch0xffffe -> 1000
 
-    asynchronous GC's of key-val's
-      that represent outdated batches and records.
+asynchronous GC's of key-val's
+    that represent outdated batches and records.
 
-      scan the counts to see which batches might have the most garbage?
+    scan the counts to see which batches might have the most garbage?
 
-      for example, "docId:user1234(0x00)batch0xffffe" is outdated
-        due to the newer, younger "docId:user1234(0x00)batch0xffffc" record...
+    for example, "docId:user1234(0x00)batch0xffffe" is outdated
+      due to the newer, younger "docId:user1234(0x00)batch0xffffc" record...
 
-        so also need to delete...
-          "deletion:batch0xffffe-recId1"
+      so also need to delete...
+        "deletion:batch0xffffe-recId1"
 
-          and go through all the postings on any field with batch0xffffe, recId1
-            maybe just use a postings iterator and a recId set filter?
+        and go through all the postings on any field with batch0xffffe, recId1
+          maybe just use a postings iterator and a recId set filter?
 
-          and any other stored fields with batch0xffffe-recId1
+        and any other stored fields with batch0xffffe-recId1
 
-        we use "docId:" record instead of "deletion:" record to look
-          for outdated information as it has more information.
-          or, perhaps scan the deletion:segId-recId records,
-          to focus on one batch at a time?
+      we use "docId:" record instead of "deletion:" record to look
+        for outdated information as it has more information.
+        or, perhaps scan the deletion:segId-recId records,
+        to focus on one batch at a time?
 
 need a way to coallesce batches?
 - create a new coallesced batch, but atomically remove the old, input batches?
