@@ -34,13 +34,21 @@ func (dr *DictionaryRow) Key() []byte {
 }
 
 func (dr *DictionaryRow) KeySize() int {
-	return len(dr.term) + 3
+	return dictionaryRowKeySize(dr.field, dr.term)
+}
+
+func dictionaryRowKeySize(field uint16, term []byte) int {
+	return len(term) + 3
 }
 
 func (dr *DictionaryRow) KeyTo(buf []byte) (int, error) {
+	return dictionaryRowKeyTo(dr.field, dr.term, buf)
+}
+
+func dictionaryRowKeyTo(field uint16, term, buf []byte) (int, error) {
 	buf[0] = 'd'
-	binary.LittleEndian.PutUint16(buf[1:3], dr.field)
-	size := copy(buf[3:], dr.term)
+	binary.LittleEndian.PutUint16(buf[1:3], field)
+	size := copy(buf[3:], term)
 	return size + 3, nil
 }
 
@@ -82,7 +90,6 @@ func NewDictionaryRowKV(key, value []byte) (*DictionaryRow, error) {
 		return nil, err
 	}
 	return rv, nil
-
 }
 
 func NewDictionaryRowK(key []byte) (*DictionaryRow, error) {

@@ -17,6 +17,7 @@ package fuego
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -205,6 +206,29 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	var addRowsAll [][]KVRow
 	var updateRowsAll [][]KVRow
 	var deleteRowsAll [][]KVRow
+
+	// Add the postings.
+	for _, fieldTerm := range fieldTerms { // Sorted by field, term ASC.
+		batchEntryTFRs := fieldTermBatchEntryTFRs[fieldTerm]
+
+		recIds := make([]uint64, len(batchEntryTFRs))
+		freqNorms := make([]uint32, 2*len(batchEntryTFRs))
+		vectors := make([][]*TermVector, len(batchEntryTFRs))
+
+		for i, batchEntryTFR := range batchEntryTFRs {
+			batchEntry := batchEntryTFR.batchEntry
+
+			recIds[i] = batchEntry.recId
+
+			tfr := batchEntry.analyzeResult.TermFreqRows[batchEntryTFR.termFreqRowIdx]
+
+			j := i * 2
+			freqNorms[j] = uint32(tfr.freq)
+			freqNorms[j+1] = math.Float32bits(tfr.norm)
+
+			vectors[i] = tfr.vectors
+		}
+	}
 
 	// Add the internal ops.
 	if len(batch.InternalOps) > 0 {

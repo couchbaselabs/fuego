@@ -36,6 +36,13 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 		switch key[0] {
 		case 'D':
 			return NewDocIDRowKV(key, value)
+		case 'P':
+			switch key[len(key)-1] {
+			case 'r':
+				return NewPostingRecIdsRowKV(key, value)
+			}
+			return nil, fmt.Errorf("Unknown posting type '%s'", string(key[len(key)-1]))
+
 		case 'S':
 			return NewSegRecStoredRowKV(key, value)
 		case 'b':
@@ -55,7 +62,7 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 		case 'z':
 			return NewSummaryRowKV(key, value)
 		}
-		return nil, fmt.Errorf("Unknown field type '%s'", string(key[0]))
+		return nil, fmt.Errorf("Unknown row type '%s'", string(key[0]))
 	}
 	return nil, fmt.Errorf("Invalid empty key")
 }
