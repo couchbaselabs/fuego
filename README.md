@@ -10,7 +10,7 @@ entire flat array of KVRows.
 
 fuego stores information following a lucene-like "segments" approach.
 So, it's somewhat like the firestorm prototype, but actually goes
-further in trying to terms in a classic postings format.
+further in trying to use a classic postings format.
 
 For each incoming batch, fuego does...
 
@@ -31,7 +31,7 @@ For each incoming batch, fuego does...
 
     for each doc in the batch, also maintain any new FieldRows (global).
 
-    Add the posting rows, stored rows, docId lookup rows, and deletions from previous segments.
+    add the posting rows, stored rows, docId lookup rows, and deletions from previous segments.
 
 The format of important KV rows looks like...
 

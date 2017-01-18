@@ -58,7 +58,7 @@ func (p *PostingRecIdsRow) KeyTo(buf []byte) (int, error) {
 	used := 3 + copy(buf[3:], p.term)
 	binary.LittleEndian.PutUint64(buf[used:used+8], p.segId)
 	used += 8
-	buf[used] = 'r'
+	buf[used] = 'c' // Using a byte that comes before 'f' for freqNorm rows.
 	used += 1
 	return used, nil
 }
