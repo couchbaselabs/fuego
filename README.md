@@ -29,41 +29,42 @@ For each incoming batch, fuego does...
 
     use that to construct the postings.
 
-    for each doc in the batch...
+    for each doc in the batch, also maintain any new FieldRows (global).
 
-      maintain any new FieldRows (global)
+    Add the posting rows, stored rows, docId lookup rows, and deletions from previous segments.
 
-      increment a recId, starting from 1, so "segId:recId" is unique
+The format of important KV rows looks like...
 
-      postings
-        postings:field4:'lazy'-segId:recIds -> [recId1, recId2, recId3]
-        postings:field4:'lazy'-segId:fieldNorms -> [0, 1, 2]
-        postings:field4:'lazy'-segId:positions -> [[], [], []]
+    postings
+      postings:field4:'lazy'-segId:recIds -> [recId1, recId2, recId3]
+      postings:field4:'lazy'-segId:fieldNorms -> [0, 1, 2]
+      postings:field4:'lazy'-segId:positions -> [[], [], []]
 
-          note that an iterator can Next() through all of the postings columns quickly.
+        note that an iterator can Next() through all of the postings columns quickly.
 
-      stored fields
-        stored:batch0xffffc-recId1:field0:arrayPositions -> "typ:user1234" // The docId.
-        stored:batch0xffffc-recId1:field1:arrayPositions -> "typ:john@email.com"
+    stored fields
+      stored:batch0xffffc-recId1:field0:arrayPositions -> "typ:user1234" // The docId.
+      stored:batch0xffffc-recId1:field1:arrayPositions -> "typ:john@email.com"
 
-          note that an iterator can Next() through all of the stored fields
-          of a record quickly.
+        note that an iterator can Next() through all of the stored fields
+        of a record quickly.
 
-      docId lookups // Newer segId's appear first since segId's grow downwards.
-        docId:user1234(0x00)batch0xffffc -> recId1
-        docId:user1234(0x00)batch0xffffe -> recId1
+    docId lookups // Newer segId's appear first since segId's grow downwards.
+      docId:user1234(0x00)batch0xffffc -> recId1
+      docId:user1234(0x00)batch0xffffe -> recId1
 
-          note that an iterator can find the most recent batch for a docId
-          and Next() through a docId's history quickly.
+        note that an iterator can find the most recent batch for a docId
+        and Next() through a docId's history quickly.
 
-      deletions // Need this to be able to efficiently ignore obsoleted recId's in postings
-        deletion:batch0xffffe-recId1 -> nil
+    deletions // Need this to be able to efficiently ignore obsoleted recId's in postings
+      deletion:batch0xffffe-recId1 -> nil
 
-      counts
-        countBatchDeletions:batch0xffffe -> 1
-        countBatchSize:batch0xffffe -> 1000
+    counts
+      countBatchDeletions:batch0xffffe -> 1
+      countBatchSize:batch0xffffe -> 1000
 
-asynchronous GC's of key-val's
+Asynchronous GC's of KV rows...
+
     that represent outdated batches and records.
 
     scan the counts to see which batches might have the most garbage?
