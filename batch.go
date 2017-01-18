@@ -127,6 +127,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	}()
 
 	// TODO: Retrieve docIDRow's concurrent with analysis.
+	// TODO: Or, just put the recId's also in the backIndexRow's.
 
 	// Wait for analyze results.
 	batchEntriesPre := make([]batchEntry, len(batch.IndexOps))           // Prealloc'ed.
@@ -158,8 +159,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 
 	// Assign recId's, starting from 1, based on the position of each
 	// docID in the sorted docID's.
-	nextRecId := uint64(1)
-
+	var nextRecId uint64 = 1
 	var numTermFreqRows int
 
 	for _, batchEntry := range batchEntriesArr {
@@ -169,7 +169,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		numTermFreqRows += len(batchEntry.analyzeResult.TermFreqRows)
 	}
 
-	// Fill the fieldTerms array and fieldTermBatchEntryTFRs map.
+	// Fill the fieldTerms array and the fieldTermBatchEntryTFRs map.
 	fieldTerms := fieldTerms(nil)
 	fieldTermBatchEntryTFRs := map[fieldTerm][]*batchEntryTFR{}
 
@@ -186,15 +186,17 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 			batchEntryTFR.batchEntry = batchEntry
 			batchEntryTFR.termFreqRowIdx = tfrIdx
 
+			// Since we are driving the loop from the sorted
+			// batchEntriesArr, the array values in the
+			// fieldTermBatchEntryTFRs will inherit the docID / recId
+			// ASC ordering.  In a sense, we're bucketing or collating
+			// or grouping by the fieldTerm's, keeping the overall
+			// batchEntriesArr ordering.
 			batchEntryTFRs := fieldTermBatchEntryTFRs[fieldTerm]
 			if batchEntryTFRs == nil {
 				fieldTerms = append(fieldTerms, fieldTerm)
 			}
 
-			// Since we are driving the loop from the sorted
-			// batchEntriesArr, the array values in the
-			// fieldTermBatchEntryTFRs will inherit the docID / recId
-			// ASC ordering.
 			fieldTermBatchEntryTFRs[fieldTerm] =
 				append(batchEntryTFRs, batchEntryTFR)
 		}
