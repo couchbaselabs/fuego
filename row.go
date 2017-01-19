@@ -38,8 +38,12 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 			return NewDocIDRowKV(key, value)
 		case 'P':
 			switch key[len(key)-1] {
-			case 'r':
+			case 'c':
 				return NewPostingRecIdsRowKV(key, value)
+			case 'f':
+				return NewPostingFreqNormsRowKV(key, value)
+			case 'v':
+				return NewPostingVecsRowKV(key, value)
 			}
 			return nil, fmt.Errorf("Unknown posting type '%s'", string(key[len(key)-1]))
 

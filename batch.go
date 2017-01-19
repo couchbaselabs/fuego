@@ -103,6 +103,8 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	// which allows newer/younger seg's to appear first in iterators.
 	udc.summaryRow.LastUsedSegId = udc.summaryRow.LastUsedSegId - 1
 
+	segId := udc.summaryRow.LastUsedSegId
+
 	go func() { // Retrieve back index rows concurrent with analysis.
 		defer close(docBackIndexRowCh)
 
@@ -210,6 +212,8 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	var deleteRowsAll [][]KVRow
 
 	// Add the postings.
+	addRows := make([]KVRow, 0, len(fieldTerms)*3)
+
 	for _, fieldTerm := range fieldTerms { // Sorted by field, term ASC.
 		batchEntryTFRs := fieldTermBatchEntryTFRs[fieldTerm]
 
@@ -217,6 +221,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		freqNorms := make([]uint32, 2*len(batchEntryTFRs))
 		vectors := make([][]*TermVector, len(batchEntryTFRs))
 
+		i2 := 0
 		for i, batchEntryTFR := range batchEntryTFRs {
 			batchEntry := batchEntryTFR.batchEntry
 
@@ -224,12 +229,27 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 
 			tfr := batchEntry.analyzeResult.TermFreqRows[batchEntryTFR.termFreqRowIdx]
 
-			j := i * 2
-			freqNorms[j] = uint32(tfr.freq)
-			freqNorms[j+1] = math.Float32bits(tfr.norm)
+			freqNorms[i2] = uint32(tfr.freq)
+			freqNorms[i2+1] = math.Float32bits(tfr.norm)
+			i2 += 2
 
 			vectors[i] = tfr.vectors
 		}
+
+		termBytes := []byte(fieldTerm.term)
+
+		addRows = append(addRows, NewPostingRecIdsRow(
+			fieldTerm.field, termBytes, segId, recIds))
+
+		addRows = append(addRows, NewPostingFreqNormsRow(
+			fieldTerm.field, termBytes, segId, freqNorms))
+
+		addRows = append(addRows, NewPostingVecsRowFromVectors(
+			fieldTerm.field, termBytes, segId, vectors))
+	}
+
+	if len(addRows) > 0 {
+		addRowsAll = append(addRowsAll, addRows)
 	}
 
 	// Add the internal ops.

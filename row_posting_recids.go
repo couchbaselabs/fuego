@@ -94,10 +94,11 @@ func (p *PostingRecIdsRow) String() string {
 		p.field, string(p.term), len(p.recIds))
 }
 
-func NewPostingRecIdsRow(field uint16, term []byte, recIds []uint64) *PostingRecIdsRow {
+func NewPostingRecIdsRow(field uint16, term []byte, segId uint64, recIds []uint64) *PostingRecIdsRow {
 	return &PostingRecIdsRow{
 		field:  field,
 		term:   term,
+		segId:  segId,
 		recIds: recIds,
 	}
 }

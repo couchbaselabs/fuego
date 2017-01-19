@@ -24,20 +24,26 @@ type PostingVecsRow struct {
 	term  []byte
 	segId uint64
 
-	// The encoded has the vec's encoded as...
-	// - numVecs (uint32).
-	// - offsets, an array of numVecs # of uint32's,
-	//     which are zero-based indexes into the parts array
-	//     where each vec starts.
-	// - parts, an array of uint32's that represent the actual vec's,
-	//     where each vec is a...
-	//     - field  (uint16),
-	//     - length (uint16) where length = end - start,
-	//     - start  (uint32),
-	//     - pos    (uint32),
-	//     - and zero or more array positions (uint32's),
-	//         where the number of array positions is determined
-	//         by the next offset.
+	// The encoded has the rec's encoded as...
+	// - numRecs (uint32).
+	// - recOffsets, an array of numRecs # of uint32's,
+	//     which are zero-based indexes into the recParts array
+	//     where each rec starts.
+	// - recParts, an array of uint32's that represent the actual rec's,
+	//     where each rec looks like...
+	//     - numVecs (uint32).
+	//     - vecOffsets, an array of numVecs # of uint32's,
+	//         which are zero-based indexes into the vecParts array
+	//         where each vec starts.
+	//     - vecParts, an array of uint32's that represent the actual vec's,
+	//         where each vec looks like...
+	//         - field  (uint16),
+	//         - length (uint16) where length = end - start,
+	//         - start  (uint32),
+	//         - pos    (uint32),
+	//         - and zero or more array positions (uint32's),
+	//             where the number of array positions is determined
+	//             by the next offset.
 	encoded []uint32
 
 	// TODO: Get rid of the 0th' offset, which is always 0?
@@ -51,32 +57,56 @@ func (p *PostingVecsRow) Term() []byte {
 	return p.term
 }
 
-func (p *PostingVecsRow) TermVector(i int, prealloc *TermVector) (
-	*TermVector, error) {
-	numVecs := p.encoded[0]
-	offset := p.encoded[1+i]
-	parts := p.encoded[1+numVecs+offset:]
-	if i+1 < int(numVecs) {
-		partsLen := p.encoded[1+i+1] - offset
-		parts = parts[:partsLen]
+// Returns the TermVectors for the i'th record in this PostingVecsRow.
+func (p *PostingVecsRow) TermVectors(i int, prealloc []*TermVector) (
+	[]*TermVector, error) {
+	numRecs := int(p.encoded[0])
+	recOffset := int(p.encoded[1+i])
+	rec := p.encoded[1+numRecs+recOffset:]
+	if i+1 < numRecs {
+		recLen := int(p.encoded[1+i+1]) - recOffset
+		rec = rec[:recLen]
 	}
+
+	numVecs := int(rec[0])
+	vecOffsets := rec[1 : 1+numVecs]
+	vecParts := rec[1+numVecs:]
 
 	rv := prealloc
-	if rv == nil {
-		rv = &TermVector{}
+	if cap(rv) < numVecs {
+		rva := make([]TermVector, numVecs)
+		rv = make([]*TermVector, numVecs)
+		for j := 0; j < numVecs; j++ {
+			rv[j] = &rva[j]
+		}
 	}
+	rv = rv[:numVecs]
 
-	fieldAndLength := parts[0]
+	for j := 0; j < numVecs; j++ {
+		tv := rv[j]
 
-	rv.field = uint16(0x0000ffff & (fieldAndLength >> 16))
-	rv.start = uint64(parts[1])
-	rv.end = rv.start + uint64(0x0000ffff&fieldAndLength)
-	rv.pos = uint64(parts[2])
+		vecOffset := vecOffsets[j]
+		vec := vecParts[vecOffset:]
+		if j+1 < numVecs {
+			vecLen := vecOffsets[j+1] - vecOffset
+			vec = vec[:vecLen]
+		}
 
-	arrayPositions := parts[3:] // TODO: Maybe avoid array copy?
-	rv.arrayPositions = rv.arrayPositions[:0]
-	for _, pos := range arrayPositions {
-		rv.arrayPositions = append(rv.arrayPositions, uint64(pos))
+		fieldAndLength := vec[0]
+
+		tv.field = uint16(0x0000ffff & (fieldAndLength >> 16))
+		tv.start = uint64(vec[1])
+		tv.end = tv.start + uint64(0x0000ffff&fieldAndLength)
+		tv.pos = uint64(vec[2])
+
+		arrayPositions := vec[3:] // TODO: Maybe avoid array copy?
+		if cap(tv.arrayPositions) < len(arrayPositions) {
+			tv.arrayPositions = make([]uint64, len(arrayPositions))
+		}
+		tv.arrayPositions = tv.arrayPositions[:len(arrayPositions)]
+		for k, pos := range arrayPositions {
+			tv.arrayPositions[k] = uint64(pos)
+		}
 	}
 
 	return rv, nil
@@ -131,12 +161,76 @@ func (p *PostingVecsRow) String() string {
 		p.field, string(p.term), numVecs, len(p.encoded))
 }
 
-func NewPostingVecsRow(field uint16, term []byte, encoded []uint32) *PostingVecsRow {
+func NewPostingVecsRow(field uint16, term []byte, segId uint64, encoded []uint32) *PostingVecsRow {
 	return &PostingVecsRow{
 		field:   field,
 		term:    term,
+		segId:   segId,
 		encoded: encoded,
 	}
+}
+
+func NewPostingVecsRowFromVectors(field uint16, term []byte, segId uint64,
+	vectors [][]*TermVector) *PostingVecsRow {
+	numRecs := len(vectors)
+
+	numVecs := 0
+	numArrayPositions := 0
+	for _, recTermVectors := range vectors {
+		numVecs += len(recTermVectors)
+		for _, termVector := range recTermVectors {
+			numArrayPositions += len(termVector.arrayPositions)
+		}
+	}
+
+	size := 1 + numRecs + numRecs + numVecs + (numVecs * 3) + numArrayPositions
+
+	encoded := make([]uint32, size)
+	encoded[0] = uint32(numRecs)
+
+	recOffsets := encoded[1 : 1+numRecs]
+
+	recParts := encoded[1+numVecs:]
+	recPartsUsed := 0
+
+	for i, recTermVectors := range vectors {
+		recOffsets[i] = uint32(recPartsUsed)
+
+		numVecs := len(recTermVectors)
+		recParts[recPartsUsed] = uint32(numVecs)
+		recPartsUsed++
+
+		vecOffsets := recParts[recPartsUsed : recPartsUsed+numVecs]
+		recPartsUsed += numVecs
+
+		vecParts := recParts[recPartsUsed:]
+		vecPartsUsed := 0
+
+		for j, termVector := range recTermVectors {
+			vecOffsets[j] = uint32(vecPartsUsed)
+
+			fieldAndLength :=
+				(0xffff0000 & uint32(termVector.field<<16)) &
+					(0x0000ffff & uint32(termVector.end-termVector.start))
+			vecParts[vecPartsUsed] = fieldAndLength
+			vecPartsUsed++
+
+			vecParts[vecPartsUsed] = uint32(termVector.start)
+			vecPartsUsed++
+
+			vecParts[vecPartsUsed] = uint32(termVector.pos)
+			vecPartsUsed++
+
+			for _, arrayPosition := range termVector.arrayPositions {
+				vecParts[vecPartsUsed] = uint32(arrayPosition)
+				vecPartsUsed++
+			}
+		}
+
+		recPartsUsed += vecPartsUsed
+	}
+
+	return NewPostingVecsRow(field, term, segId, encoded)
 }
 
 func NewPostingVecsRowK(key []byte) (*PostingVecsRow, error) {

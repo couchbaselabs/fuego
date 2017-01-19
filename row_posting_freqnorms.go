@@ -91,10 +91,11 @@ func (p *PostingFreqNormsRow) String() string {
 		p.field, string(p.term), len(p.freqNorms))
 }
 
-func NewPostingFreqNormsRow(field uint16, term []byte, freqNorms []uint32) *PostingFreqNormsRow {
+func NewPostingFreqNormsRow(field uint16, term []byte, segId uint64, freqNorms []uint32) *PostingFreqNormsRow {
 	return &PostingFreqNormsRow{
 		field:     field,
 		term:      term,
+		segId:     segId,
 		freqNorms: freqNorms,
 	}
 }
