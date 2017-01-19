@@ -100,51 +100,42 @@ func (udc *Fuego) initStoreLOCKED(kvwriter store.KVWriter) error {
 	return udc.batchRows(kvwriter, nil, rowsAll, nil)
 }
 
-func (udc *Fuego) loadStoreLOCKED(kvreader store.KVReader) (err error) {
-	var val []byte
-	val, err = kvreader.Get(VersionKey)
+func (udc *Fuego) loadStoreLOCKED(kvreader store.KVReader) error {
+	val, err := kvreader.Get(VersionKey)
 	if err != nil {
-		return
+		return err
 	}
 
-	var vr *VersionRow
-	vr, err = NewVersionRowKV(VersionKey, val)
+	vr, err := NewVersionRowKV(VersionKey, val)
 	if err != nil {
-		return
+		return err
 	}
 	if vr.version != Version {
-		err = IncompatibleVersion
-		return
+		return IncompatibleVersion
 	}
 
 	// load summary row
 	val, err = kvreader.Get(SummaryKey)
 	if err != nil {
-		return
+		return err
 	}
 
-	var sr *SummaryRow
-	sr, err = NewSummaryRowKV(SummaryKey, val)
+	sr, err := NewSummaryRowKV(SummaryKey, val)
 	if err != nil {
-		return
+		return err
 	}
 
 	udc.summaryRow = sr
 
 	// load field rows
 	it := kvreader.PrefixIterator([]byte{'f'})
-	defer func() {
-		if cerr := it.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
-	}()
+	defer it.Close()
 
 	k, v, valid := it.Current()
 	for valid {
-		var fieldRow *FieldRow
-		fieldRow, err = NewFieldRowKV(k, v)
+		fieldRow, err := NewFieldRowKV(k, v)
 		if err != nil {
-			return
+			return err
 		}
 
 		udc.fieldCache.AddExisting(fieldRow.name, fieldRow.index)
@@ -153,16 +144,14 @@ func (udc *Fuego) loadStoreLOCKED(kvreader store.KVReader) (err error) {
 		k, v, valid = it.Current()
 	}
 
-	return
+	return nil
 }
 
-func (udc *Fuego) countDocs(kvreader store.KVReader) (count uint64, err error) {
+func (udc *Fuego) countDocs(kvreader store.KVReader) (uint64, error) {
 	it := kvreader.PrefixIterator([]byte{'b'})
-	defer func() {
-		if cerr := it.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}()
+	defer it.Close()
+
+	var count uint64
 
 	_, _, valid := it.Current()
 	for valid {
@@ -171,7 +160,7 @@ func (udc *Fuego) countDocs(kvreader store.KVReader) (count uint64, err error) {
 		_, _, valid = it.Current()
 	}
 
-	return
+	return count, nil
 }
 
 func (udc *Fuego) Close() error {

@@ -103,7 +103,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	// which allows newer/younger seg's to appear first in iterators.
 	udc.summaryRow.LastUsedSegId = udc.summaryRow.LastUsedSegId - 1
 
-	segId := udc.summaryRow.LastUsedSegId
+	currSegId := udc.summaryRow.LastUsedSegId
 
 	go func() { // Retrieve back index rows concurrent with analysis.
 		defer close(docBackIndexRowCh)
@@ -207,9 +207,10 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	// Sort the fieldTerms by field ASC, term ASC.
 	sort.Sort(fieldTerms)
 
-	var addRowsAll [][]KVRow
-	var updateRowsAll [][]KVRow
-	var deleteRowsAll [][]KVRow
+	// Need a summary row update.
+	addRowsAll := [][]KVRow(nil)
+	updateRowsAll := [][]KVRow{[]KVRow{NewSummaryRow(currSegId)}}
+	deleteRowsAll := [][]KVRow(nil)
 
 	// Add the postings.
 	addRows := make([]KVRow, 0, len(fieldTerms)*3)
@@ -239,13 +240,13 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		termBytes := []byte(fieldTerm.term)
 
 		addRows = append(addRows, NewPostingRecIdsRow(
-			fieldTerm.field, termBytes, segId, recIds))
+			fieldTerm.field, termBytes, currSegId, recIds))
 
 		addRows = append(addRows, NewPostingFreqNormsRow(
-			fieldTerm.field, termBytes, segId, freqNorms))
+			fieldTerm.field, termBytes, currSegId, freqNorms))
 
 		addRows = append(addRows, NewPostingVecsRowFromVectors(
-			fieldTerm.field, termBytes, segId, vectors))
+			fieldTerm.field, termBytes, currSegId, vectors))
 	}
 
 	if len(addRows) > 0 {
@@ -290,7 +291,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 			}
 		} else {
 			addRows, updateRows, deleteRows := udc.mergeOldAndNew(
-				udc.summaryRow.LastUsedSegId, dbir.backIndexRow, batchEntriesMap[dbir.docID])
+				currSegId, dbir.backIndexRow, batchEntriesMap[dbir.docID])
 			if len(addRows) > 0 {
 				addRowsAll = append(addRowsAll, addRows)
 			}
