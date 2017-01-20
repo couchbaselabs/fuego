@@ -269,10 +269,16 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	docsAdded := uint64(0)
 	docsDeleted := uint64(0)
 
+	dictionaryDeltas := make(map[string]int64)
+
+	keyBuf := GetRowBuffer()
+
 	for dbir := range docBackIndexRowCh {
 		if dbir.doc == nil {
 			if dbir.backIndexRow != nil { // A deletion.
-				deleteRows := udc.deleteSingle(dbir.docIDBytes, dbir.backIndexRow)
+				var deleteRows []KVRow
+				deleteRows, keyBuf = udc.deleteSingle(
+					dbir.docIDBytes, dbir.backIndexRow, dictionaryDeltas, keyBuf)
 				if len(deleteRows) > 0 {
 					deleteRowsAll = append(deleteRowsAll, deleteRows)
 				}
@@ -280,8 +286,9 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 				docsDeleted++
 			}
 		} else {
-			addRows, updateRows, deleteRows := udc.mergeOldAndNew(
-				currSegId, dbir.backIndexRow, batchEntriesMap[dbir.docID])
+			var addRows, updateRows, deleteRows []KVRow
+			addRows, updateRows, deleteRows, keyBuf = udc.mergeOldAndNew(currSegId,
+				dbir.backIndexRow, batchEntriesMap[dbir.docID], dictionaryDeltas, keyBuf)
 			if len(addRows) > 0 {
 				addRowsAll = append(addRowsAll, addRows)
 			}
@@ -297,6 +304,8 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		}
 	}
 
+	PutRowBuffer(keyBuf)
+
 	if docBackIndexRowErr != nil {
 		return docBackIndexRowErr
 	}
@@ -307,7 +316,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		return err
 	}
 
-	err = udc.batchRows(kvwriter, addRowsAll, updateRowsAll, deleteRowsAll)
+	err = udc.batchRows(kvwriter, addRowsAll, updateRowsAll, deleteRowsAll, dictionaryDeltas)
 
 	cerr := kvwriter.Close()
 	if cerr != nil && err == nil {
@@ -334,12 +343,24 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	return nil
 }
 
-func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow) []KVRow {
+func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow,
+	dictionaryDeltas map[string]int64, keyBuf []byte) ([]KVRow, []byte) {
 	deleteRows := make([]KVRow, 0, len(backIndexRow.termEntries)+len(backIndexRow.storedEntries)+2)
 
 	for _, te := range backIndexRow.termEntries {
+		// TODO: Once fuego is ready, no longer need to delete the TermFreqRows,
+		// since TermFreqRows will no longer be persisted.
+
 		tfr := NewTermFrequencyRow([]byte(*te.Term), uint16(*te.Field), idBytes, 0, 0)
 		deleteRows = append(deleteRows, tfr)
+
+		if tfr.DictionaryRowKeySize() > len(keyBuf) {
+			keyBuf = make([]byte, tfr.DictionaryRowKeySize())
+		}
+		dictKeySize, err := tfr.DictionaryRowKeyTo(keyBuf)
+		if err == nil {
+			dictionaryDeltas[string(keyBuf[:dictKeySize])] -= 1
+		}
 	}
 
 	for _, se := range backIndexRow.storedEntries {
@@ -350,13 +371,12 @@ func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow) []KVR
 	deleteRows = append(deleteRows, NewIdRow(backIndexRow.segId, backIndexRow.recId, nil))
 
 	// also delete the backIndexRow itself
-	return append(deleteRows, backIndexRow)
+	return append(deleteRows, backIndexRow), keyBuf
 }
 
 func (udc *Fuego) batchRows(writer store.KVWriter,
-	addRowsAll [][]KVRow, updateRowsAll [][]KVRow, deleteRowsAll [][]KVRow) (err error) {
-	dictionaryDeltas := make(map[string]int64)
-
+	addRowsAll [][]KVRow, updateRowsAll [][]KVRow, deleteRowsAll [][]KVRow,
+	dictionaryDeltas map[string]int64) error {
 	// count up bytes needed for buffering.
 	addNum := 0
 	addKeyBytes := 0
@@ -369,21 +389,8 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 	deleteNum := 0
 	deleteKeyBytes := 0
 
-	rowBuf := GetRowBuffer()
-
 	for _, addRows := range addRowsAll {
 		for _, row := range addRows {
-			tfr, ok := row.(*TermFrequencyRow)
-			if ok {
-				if tfr.DictionaryRowKeySize() > len(rowBuf) {
-					rowBuf = make([]byte, tfr.DictionaryRowKeySize())
-				}
-				dictKeySize, err := tfr.DictionaryRowKeyTo(rowBuf)
-				if err != nil {
-					return err
-				}
-				dictionaryDeltas[string(rowBuf[:dictKeySize])] += 1
-			}
 			addKeyBytes += row.KeySize()
 			addValBytes += row.ValueSize()
 		}
@@ -400,24 +407,10 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 
 	for _, deleteRows := range deleteRowsAll {
 		for _, row := range deleteRows {
-			tfr, ok := row.(*TermFrequencyRow)
-			if ok {
-				// need to decrement counter
-				if tfr.DictionaryRowKeySize() > len(rowBuf) {
-					rowBuf = make([]byte, tfr.DictionaryRowKeySize())
-				}
-				dictKeySize, err := tfr.DictionaryRowKeyTo(rowBuf)
-				if err != nil {
-					return err
-				}
-				dictionaryDeltas[string(rowBuf[:dictKeySize])] -= 1
-			}
 			deleteKeyBytes += row.KeySize()
 		}
 		deleteNum += len(deleteRows)
 	}
-
-	PutRowBuffer(rowBuf)
 
 	mergeNum := len(dictionaryDeltas)
 	mergeKeyBytes := 0
@@ -500,8 +493,9 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 }
 
 func (udc *Fuego) mergeOldAndNew(segId uint64,
-	backIndexRow *BackIndexRow, batchEntry *batchEntry) (
-	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
+	backIndexRow *BackIndexRow, batchEntry *batchEntry,
+	dictionaryDeltas map[string]int64, keyBuf []byte) (
+	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow, keyBufOut []byte) {
 	// TODO: Once fuego is ready, no longer need to persist the TermFreqRows.
 
 	ar := batchEntry.analyzeResult
@@ -520,14 +514,24 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		for _, row := range ar.FieldRows {
 			addRows = append(addRows, row)
 		}
+
 		for _, row := range ar.TermFreqRows {
 			addRows = append(addRows, row)
+
+			if row.DictionaryRowKeySize() > len(keyBuf) {
+				keyBuf = make([]byte, row.DictionaryRowKeySize())
+			}
+			dictKeySize, err := row.DictionaryRowKeyTo(keyBuf)
+			if err == nil {
+				dictionaryDeltas[string(keyBuf[:dictKeySize])] += 1
+			}
 		}
+
 		for _, row := range ar.StoredRows {
 			addRows = append(addRows, row)
 		}
 
-		return addRows, nil, nil
+		return addRows, nil, nil, keyBuf
 	}
 
 	updateRows = make([]KVRow, 0, numRows)
@@ -555,8 +559,6 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		}
 	}
 
-	keyBuf := GetRowBuffer()
-
 	for _, row := range ar.TermFreqRows {
 		if existingTermKeys != nil {
 			if row.KeySize() > len(keyBuf) {
@@ -572,6 +574,14 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		}
 
 		addRows = append(addRows, row)
+
+		if row.DictionaryRowKeySize() > len(keyBuf) {
+			keyBuf = make([]byte, row.DictionaryRowKeySize())
+		}
+		dictKeySize, err := row.DictionaryRowKeyTo(keyBuf)
+		if err == nil {
+			dictionaryDeltas[string(keyBuf[:dictKeySize])] += 1
+		}
 	}
 
 	for _, row := range ar.StoredRows {
@@ -591,16 +601,22 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		addRows = append(addRows, row)
 	}
 
-	PutRowBuffer(keyBuf)
-
 	deleteRows = make([]KVRow, 0, 1+len(existingTermKeys)+len(existingStoredKeys))
 	deleteRows = append(deleteRows, NewIdRow(backIndexRow.segId, backIndexRow.recId, nil))
 
-	// any of the existing termFrequenceRows that weren't updated need to be deleted
+	// any of the existing termFrequencyRows that weren't updated need to be deleted
 	for existingTermKey := range existingTermKeys {
-		termFreqRow, err := NewTermFrequencyRowK([]byte(existingTermKey))
+		tfr, err := NewTermFrequencyRowK([]byte(existingTermKey))
 		if err == nil {
-			deleteRows = append(deleteRows, termFreqRow)
+			deleteRows = append(deleteRows, tfr)
+
+			if tfr.DictionaryRowKeySize() > len(keyBuf) {
+				keyBuf = make([]byte, tfr.DictionaryRowKeySize())
+			}
+			dictKeySize, err := tfr.DictionaryRowKeyTo(keyBuf)
+			if err == nil {
+				dictionaryDeltas[string(keyBuf[:dictKeySize])] -= 1
+			}
 		}
 	}
 
@@ -612,5 +628,5 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		}
 	}
 
-	return addRows, updateRows, deleteRows
+	return addRows, updateRows, deleteRows, keyBuf
 }

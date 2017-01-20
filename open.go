@@ -97,7 +97,7 @@ func (udc *Fuego) initStoreLOCKED(kvwriter store.KVWriter) error {
 		},
 	}
 
-	return udc.batchRows(kvwriter, nil, rowsAll, nil)
+	return udc.batchRows(kvwriter, nil, rowsAll, nil, nil)
 }
 
 func (udc *Fuego) loadStoreLOCKED(kvreader store.KVReader) error {
