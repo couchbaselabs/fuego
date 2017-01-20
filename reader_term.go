@@ -24,7 +24,7 @@ import (
 type TermFieldReader struct {
 	count              uint64
 	indexReader        *IndexReader
-	iterator           store.KVIterator
+	iter               store.KVIterator
 	term               []byte
 	tfrNext            *TermFrequencyRow
 	keyBuf             []byte
@@ -45,14 +45,11 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 
 	if val == nil {
 		atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
+
 		return &TermFieldReader{
-			count:              0,
-			term:               term,
-			tfrNext:            &TermFrequencyRow{},
-			field:              field,
-			includeFreq:        includeFreq,
-			includeNorm:        includeNorm,
-			includeTermVectors: includeTermVectors,
+			count: 0,
+			term:  term,
+			field: field,
 		}, nil
 	}
 
@@ -61,15 +58,15 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		return nil, err
 	}
 
-	tfr := NewTermFrequencyRow(term, field, []byte{}, 0, 0)
+	tfr := NewTermFrequencyRow(term, field, nil, 0, 0)
 
-	it := indexReader.kvreader.PrefixIterator(tfr.Key())
+	iter := indexReader.kvreader.PrefixIterator(tfr.Key())
 
 	atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
 
 	return &TermFieldReader{
 		indexReader:        indexReader,
-		iterator:           it,
+		iter:               iter,
 		count:              dictionaryRow.count,
 		term:               term,
 		field:              field,
@@ -84,17 +81,17 @@ func (r *TermFieldReader) Count() uint64 {
 }
 
 func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
-	if r.iterator != nil {
+	if r.iter != nil {
 		// We treat tfrNext also like an initialization flag, which
 		// tells us whether we need to invoke the underlying
-		// iterator.Next().  The first time, don't call iterator.Next().
+		// iter.Next().  The first time, don't call iter.Next().
 		if r.tfrNext != nil {
-			r.iterator.Next()
+			r.iter.Next()
 		} else {
 			r.tfrNext = &TermFrequencyRow{}
 		}
 
-		key, val, valid := r.iterator.Current()
+		key, val, valid := r.iter.Current()
 		if valid {
 			tfr := r.tfrNext
 
@@ -130,7 +127,7 @@ func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermField
 
 func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index.TermFieldDoc) (
 	rv *index.TermFieldDoc, err error) {
-	if r.iterator != nil {
+	if r.iter != nil {
 		if r.tfrNext == nil {
 			r.tfrNext = &TermFrequencyRow{}
 		}
@@ -141,9 +138,9 @@ func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index
 			return nil, err
 		}
 
-		r.iterator.Seek(r.keyBuf)
+		r.iter.Seek(r.keyBuf)
 
-		key, val, valid := r.iterator.Current()
+		key, val, valid := r.iter.Current()
 		if valid {
 			err := tfr.parseKDoc(key, r.term)
 			if err != nil {
@@ -180,8 +177,8 @@ func (r *TermFieldReader) Close() error {
 		atomic.AddUint64(&r.indexReader.index.stats.termSearchersFinished, uint64(1))
 	}
 
-	if r.iterator != nil {
-		return r.iterator.Close()
+	if r.iter != nil {
+		return r.iter.Close()
 	}
 
 	return nil
