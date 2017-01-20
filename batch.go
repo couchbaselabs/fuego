@@ -512,10 +512,11 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 	numRows := 2 + len(ar.FieldRows) + len(ar.TermFreqRows) + len(ar.StoredRows)
 
 	addRows = make([]KVRow, 0, numRows)
-	addRows = append(addRows, ar.BackIndexRow)
 	addRows = append(addRows, NewIdRow(ar.BackIndexRow.segId, ar.BackIndexRow.recId, ar.DocIDBytes))
 
 	if backIndexRow == nil {
+		addRows = append(addRows, ar.BackIndexRow)
+
 		for _, row := range ar.FieldRows {
 			addRows = append(addRows, row)
 		}
@@ -530,6 +531,7 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 	}
 
 	updateRows = make([]KVRow, 0, numRows)
+	updateRows = append(updateRows, ar.BackIndexRow)
 
 	for _, row := range ar.FieldRows {
 		updateRows = append(updateRows, row)
@@ -592,9 +594,7 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 	PutRowBuffer(keyBuf)
 
 	deleteRows = make([]KVRow, 0, 1+len(existingTermKeys)+len(existingStoredKeys))
-
-	deleteRows = append(deleteRows,
-		NewIdRow(backIndexRow.segId, backIndexRow.recId, nil))
+	deleteRows = append(deleteRows, NewIdRow(backIndexRow.segId, backIndexRow.recId, nil))
 
 	// any of the existing termFrequenceRows that weren't updated need to be deleted
 	for existingTermKey := range existingTermKeys {
