@@ -29,6 +29,8 @@ type TermFieldReader struct {
 	tfrNext            *TermFrequencyRow
 	keyBuf             []byte
 	field              uint16
+	includeFreq        bool
+	includeNorm        bool
 	includeTermVectors bool
 }
 
@@ -48,6 +50,8 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 			term:               term,
 			tfrNext:            &TermFrequencyRow{},
 			field:              field,
+			includeFreq:        includeFreq,
+			includeNorm:        includeNorm,
 			includeTermVectors: includeTermVectors,
 		}, nil
 	}
@@ -69,6 +73,8 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		count:              dictionaryRow.count,
 		term:               term,
 		field:              field,
+		includeFreq:        includeFreq,
+		includeNorm:        includeNorm,
 		includeTermVectors: includeTermVectors,
 	}, nil
 }

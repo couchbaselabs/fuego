@@ -49,16 +49,18 @@ func (p *PostingRecIdsRow) Key() []byte {
 }
 
 func (p *PostingRecIdsRow) KeySize() int {
-	return 1 + 2 + len(p.term) + 8 + 1
+	return 1 + 2 + len(p.term) + 1 + 8 + 1
 }
 
 func (p *PostingRecIdsRow) KeyTo(buf []byte) (int, error) {
 	buf[0] = 'P'
 	binary.LittleEndian.PutUint16(buf[1:3], p.field)
 	used := 3 + copy(buf[3:], p.term)
+	buf[used] = ByteSeparator
+	used += 1
 	binary.LittleEndian.PutUint64(buf[used:used+8], p.segId)
 	used += 8
-	buf[used] = 'c' // Using a byte that comes before 'f' for freqNorm rows.
+	buf[used] = 'c' // Using suffix 'c', which lexically is before 'f' (from freqNorm rows).
 	used += 1
 	return used, nil
 }
@@ -114,11 +116,11 @@ func NewPostingRecIdsRowK(key []byte) (*PostingRecIdsRow, error) {
 
 func (p *PostingRecIdsRow) parseK(key []byte) error {
 	keyLen := len(key)
-	if keyLen < 4 {
+	if keyLen < 13 {
 		return fmt.Errorf("invalid PostingRecIdsRow key")
 	}
 	p.field = binary.LittleEndian.Uint16(key[1:3])
-	p.term = append(p.term[:0], key[3:len(key)-9]...)
+	p.term = append(p.term[:0], key[3:len(key)-10]...)
 	p.segId = binary.LittleEndian.Uint64(key[len(key)-9 : len(key)-1])
 	return nil
 }
