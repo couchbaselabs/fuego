@@ -65,35 +65,31 @@ func (i *IndexReader) DocIDReaderOnly(ids []string) (index.DocIDReader, error) {
 	return newDocIDReaderOnly(i, ids)
 }
 
-func (i *IndexReader) Document(id string) (doc *document.Document, err error) {
+func (i *IndexReader) Document(id string) (*document.Document, error) {
+	idBytes := []byte(id)
+
 	// first hit the back index to confirm doc exists
-	var backIndexRow *BackIndexRow
-	backIndexRow, err = backIndexRowForDoc(i.kvreader, []byte(id))
+	backIndexRow, err := backIndexRowForDoc(i.kvreader, idBytes)
 	if err != nil || backIndexRow == nil {
-		return
+		return nil, err
 	}
 
-	doc = document.NewDocument(id)
-	storedRow := NewStoredRow([]byte(id), 0, []uint64{}, 'x', nil)
+	doc := document.NewDocument(id)
+
+	storedRow := NewStoredRow(idBytes, 0, []uint64{}, 'x', nil)
 	storedRowScanPrefix := storedRow.ScanPrefixForDoc()
 
 	it := i.kvreader.PrefixIterator(storedRowScanPrefix)
-	defer func() {
-		if cerr := it.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}()
+	defer it.Close()
 
 	key, val, valid := it.Current()
 	for valid {
 		safeVal := make([]byte, len(val))
 		copy(safeVal, val)
 
-		var row *StoredRow
-		row, err = NewStoredRowKV(key, safeVal)
+		row, err := NewStoredRowKV(key, safeVal)
 		if err != nil {
-			doc = nil
-			return
+			return nil, err
 		}
 
 		if row != nil {
@@ -109,7 +105,7 @@ func (i *IndexReader) Document(id string) (doc *document.Document, err error) {
 		key, val, valid = it.Current()
 	}
 
-	return
+	return doc, nil
 }
 
 func decodeFieldType(typ byte, name string, pos []uint64, value []byte) document.Field {

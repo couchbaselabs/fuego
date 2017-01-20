@@ -502,6 +502,8 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 func (udc *Fuego) mergeOldAndNew(segId uint64,
 	backIndexRow *BackIndexRow, batchEntry *batchEntry) (
 	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
+	// TODO: Once fuego is ready, no longer need to persist the TermFreqRows.
+
 	ar := batchEntry.analyzeResult
 
 	ar.BackIndexRow.segId = segId
@@ -589,7 +591,7 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 
 	PutRowBuffer(keyBuf)
 
-	deleteRows = make([]KVRow, 0, 1 + len(existingTermKeys) + len(existingStoredKeys))
+	deleteRows = make([]KVRow, 0, 1+len(existingTermKeys)+len(existingStoredKeys))
 
 	deleteRows = append(deleteRows,
 		NewIdRow(backIndexRow.segId, backIndexRow.recId, nil))
