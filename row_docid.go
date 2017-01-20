@@ -36,9 +36,8 @@ func (s *DocIDRow) KeySize() int {
 }
 
 func (s *DocIDRow) KeyTo(buf []byte) (int, error) {
-	docLen := len(s.docID)
 	buf[0] = 'D'
-	copy(buf[1:], s.docID)
+	docLen := copy(buf[1:], s.docID)
 	buf[1+docLen] = ByteSeparator
 	binary.LittleEndian.PutUint64(buf[1+docLen+1:], s.segId)
 	return 1 + docLen + 1 + 8, nil

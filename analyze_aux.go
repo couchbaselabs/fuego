@@ -162,7 +162,7 @@ func (udc *Fuego) analyzeAux(d *document.Document,
 	}
 
 	if wantBackIndex {
-		rv.BackIndexRow = NewBackIndexRow(rv.DocIDBytes, backIndexTermEntries, backIndexStoreEntries)
+		rv.BackIndexRow = NewBackIndexRow(rv.DocIDBytes, 0, 0, backIndexTermEntries, backIndexStoreEntries)
 	}
 
 	return rv

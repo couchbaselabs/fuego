@@ -303,7 +303,7 @@ func TestIndexDocIdReader(t *testing.T) {
 }
 
 func TestCrashBadBackIndexRow(t *testing.T) {
-	br, err := NewBackIndexRowKV([]byte{byte('b'), byte('a'), ByteSeparator}, []byte{})
+	br, err := NewBackIndexRowKV([]byte{'b', 'a', ByteSeparator}, []byte{8, 0, 16, 0})
 	if err != nil {
 		t.Fatal(err)
 	}

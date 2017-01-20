@@ -9,6 +9,8 @@ message BackIndexStoreEntry {
 }
 
 message BackIndexRowValue {
-	repeated BackIndexTermEntry termEntries = 1;
-	repeated BackIndexStoreEntry storedEntries = 2;
+    required uint64 segId = 1;
+    required uint64 recId = 2;
+	repeated BackIndexTermEntry termEntries = 3;
+	repeated BackIndexStoreEntry storedEntries = 4;
 }

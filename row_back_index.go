@@ -27,6 +27,8 @@ import (
 
 type BackIndexRow struct {
 	docID         []byte
+	segId         uint64
+	recId         uint64
 	termEntries   []*BackIndexTermEntry
 	storedEntries []*BackIndexStoreEntry
 }
@@ -70,13 +72,13 @@ func (br *BackIndexRow) Key() []byte {
 }
 
 func (br *BackIndexRow) KeySize() int {
-	return len(br.docID) + 1
+	return 1 + len(br.docID)
 }
 
 func (br *BackIndexRow) KeyTo(buf []byte) (int, error) {
 	buf[0] = 'b'
 	used := copy(buf[1:], br.docID)
-	return used + 1, nil
+	return 1 + used, nil
 }
 
 func (br *BackIndexRow) Value() []byte {
@@ -87,6 +89,8 @@ func (br *BackIndexRow) Value() []byte {
 
 func (br *BackIndexRow) ValueSize() int {
 	birv := &BackIndexRowValue{
+		SegId:         &br.segId,
+		RecId:         &br.recId,
 		TermEntries:   br.termEntries,
 		StoredEntries: br.storedEntries,
 	}
@@ -95,6 +99,8 @@ func (br *BackIndexRow) ValueSize() int {
 
 func (br *BackIndexRow) ValueTo(buf []byte) (int, error) {
 	birv := &BackIndexRowValue{
+		SegId:         &br.segId,
+		RecId:         &br.recId,
 		TermEntries:   br.termEntries,
 		StoredEntries: br.storedEntries,
 	}
@@ -102,14 +108,17 @@ func (br *BackIndexRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (br *BackIndexRow) String() string {
-	return fmt.Sprintf("BackIndex docID: `%s`, termEntries: %v, storedEntries: %v",
-		string(br.docID), br.termEntries, br.storedEntries)
+	return fmt.Sprintf("BackIndex docID: `%s`, segId: %d, recId: %d, "+
+		"termEntries: %v, storedEntries: %v",
+		string(br.docID), br.segId, br.recId, br.termEntries, br.storedEntries)
 }
 
-func NewBackIndexRow(docID []byte,
+func NewBackIndexRow(docID []byte, segId, recId uint64,
 	entries []*BackIndexTermEntry, storedFields []*BackIndexStoreEntry) *BackIndexRow {
 	return &BackIndexRow{
 		docID:         docID,
+		segId:         segId,
+		recId:         recId,
 		termEntries:   entries,
 		storedEntries: storedFields,
 	}
@@ -138,6 +147,13 @@ func NewBackIndexRowKV(key, value []byte) (*BackIndexRow, error) {
 	err = proto.Unmarshal(value, &birv)
 	if err != nil {
 		return nil, err
+	}
+
+	if birv.SegId != nil {
+		rv.segId = *birv.SegId
+	}
+	if birv.RecId != nil {
+		rv.recId = *birv.RecId
 	}
 
 	rv.termEntries = birv.TermEntries
@@ -171,10 +187,5 @@ func backIndexRowForDoc(kvreader store.KVReader, docID index.IndexInternalID) (*
 		return nil, nil
 	}
 
-	backIndexRow, err := NewBackIndexRowKV(keyBuf[:keySize], value)
-	if err != nil {
-		return nil, err
-	}
-
-	return backIndexRow, nil
+	return NewBackIndexRowKV(keyBuf[:keySize], value)
 }

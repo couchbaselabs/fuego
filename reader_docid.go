@@ -34,8 +34,8 @@ func newDocIDReader(indexReader *IndexReader) (*DocIDReader, error) {
 	startBytes := []byte{0x0}
 	endBytes := []byte{0xff}
 
-	bisr := NewBackIndexRow(startBytes, nil, nil)
-	bier := NewBackIndexRow(endBytes, nil, nil)
+	bisr := NewBackIndexRow(startBytes, 0, 0, nil, nil)
+	bier := NewBackIndexRow(endBytes, 0, 0, nil, nil)
 	it := indexReader.kvreader.RangeIterator(bisr.Key(), bier.Key())
 
 	return &DocIDReader{
@@ -58,8 +58,8 @@ func newDocIDReaderOnly(indexReader *IndexReader, ids []string) (*DocIDReader, e
 		endBytes = incrementBytes([]byte(ids[len(ids)-1]))
 	}
 
-	bisr := NewBackIndexRow(startBytes, nil, nil)
-	bier := NewBackIndexRow(endBytes, nil, nil)
+	bisr := NewBackIndexRow(startBytes, 0, 0, nil, nil)
+	bier := NewBackIndexRow(endBytes, 0, 0, nil, nil)
 	it := indexReader.kvreader.RangeIterator(bisr.Key(), bier.Key())
 
 	return &DocIDReader{
@@ -87,7 +87,7 @@ func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 					return nil, nil
 				}
 
-				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
+				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), 0, 0, nil, nil).Key())
 				key, val, valid = r.iterator.Current()
 
 				continue
@@ -100,7 +100,7 @@ func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 		if valid && r.onlyPos < len(r.only) {
 			ok := r.nextOnly()
 			if ok {
-				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
+				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), 0, 0, nil, nil).Key())
 			}
 
 			return rv, nil
@@ -129,7 +129,7 @@ func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalI
 			return nil, nil
 		}
 
-		r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
+		r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), 0, 0, nil, nil).Key())
 		key, val, valid := r.iterator.Current()
 
 		var rv index.IndexInternalID
@@ -149,7 +149,7 @@ func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalI
 				}
 
 				// now seek to this new only key
-				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
+				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), 0, 0, nil, nil).Key())
 				key, val, valid = r.iterator.Current()
 				continue
 			} else {
@@ -160,13 +160,13 @@ func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalI
 		if valid && r.onlyPos < len(r.only) {
 			ok := r.nextOnly()
 			if ok {
-				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), nil, nil).Key())
+				r.iterator.Seek(NewBackIndexRow([]byte(r.only[r.onlyPos]), 0, 0, nil, nil).Key())
 			}
 
 			return rv, nil
 		}
 	} else {
-		bir := NewBackIndexRow(docID, nil, nil)
+		bir := NewBackIndexRow(docID, 0, 0, nil, nil)
 		r.iterator.Seek(bir.Key())
 
 		key, val, valid := r.iterator.Current()

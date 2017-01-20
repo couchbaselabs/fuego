@@ -50,6 +50,7 @@ The format of important KV rows looks like...
         of a record quickly.
 
     docId lookups // Newer segId's appear first since segId's grow downwards.
+                  // Perhaps can just fold this into the backIndex.
       docId:user1234(0x00)batch0xffffc -> recId1
       docId:user1234(0x00)batch0xffffe -> recId1
 

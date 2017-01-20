@@ -123,7 +123,7 @@ func (udc *Fuego) Analyze(d *document.Document) *index.AnalysisResult {
 	}
 
 	// build the back index row
-	backIndexRow := NewBackIndexRow(docIDBytes, backIndexTermEntries, backIndexStoredEntries)
+	backIndexRow := NewBackIndexRow(docIDBytes, 0, 0, backIndexTermEntries, backIndexStoredEntries)
 	rv.Rows = append(rv.Rows, backIndexRow)
 
 	return rv

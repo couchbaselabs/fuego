@@ -36,7 +36,7 @@ func (dr *SummaryRow) KeySize() int {
 }
 
 func (dr *SummaryRow) KeyTo(buf []byte) (int, error) {
-	buf[0] = SummaryKey[0]
+	buf[0] = 'z'
 	return 1, nil
 }
 
