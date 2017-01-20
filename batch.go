@@ -82,7 +82,6 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	go func() {
 		for _, doc := range batch.IndexOps {
 			if doc != nil {
-				// TODO: Change WantBackIndex to false when 100% fuego.
 				AnalyzeAuxQueue <- &AnalyzeAuxReq{
 					Index:         udc,
 					Doc:           doc,
