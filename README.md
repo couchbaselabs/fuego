@@ -42,30 +42,40 @@ But, also no longer persist the TermFrequencyRow's -- the
 
 Also, additional, persisted KV rows introduced by fuego would be...
 
-    postings
-      <postings>:field4:'lazy'-segId:<recIds> -> [recId1, recId2, recId3]
-      <postings>:field4:'lazy'-segId:<fieldNorms> -> [0, 1, 2]
-      <postings>:field4:'lazy'-segId:>positions> -> [[], [], []]
+    Notes on syntax for the following...
+      The colon (':') character represents concatenation.
+      A tag-like <token> represents a single byte type code.
+      A fieldId is a fixed length uint16.
+      A 'lazy' is an example term, of variable length.
+      A 0xff is a ByteSeparator (length 1 byte).
+      A segId is a fixed length uint64 (not varint encoded).
+      A recId is a fixed length uint64 (not varint encoded).
+      A docID is a fixed length uint64 (not varint encoded).
 
-        note that an iterator can Next() through all
-          of the postings columns quickly.
+    postings
+      <postings>:fieldId:'lazy':0xff:segId:<recIds> -> [recId1, recId2, recId3]
+      <postings>:fieldId:'lazy':0xff:segId:<fieldNorms> -> [0, 1, 2]
+      <postings>:fieldId:'lazy':0xff:segId:>positions> -> [[], [], []]
+
+        Note that an iterator can Next() through all
+          of the postings related information quickly.
 
     id lookups from internalId to externalId
       <id>:segId:recId -> docID
 
       lookups from externalId to internalId would go through the
-        backIndexRow, where we'll also track the segId:recId info as
-        part of the backIndexRow value.
+        backIndexRow, where we'll enhance to also track the current
+        segId:recId info as part of each backIndexRow's value.
 
-      The id lookup rows are deleted synchronously in a Batch(),
-        as part of the backIndex driven mergeOldAndNew().
+      The id lookup rows are deleted synchronously with each batch,
+        as part of the batch processing's mergeOldAndNew().
 
       A missing (already deleted) id lookup row for a segId:recId
-        means that the recId must be ignored in the postings.
+        means that the recId should be ignored in the postings.
 
     counts
-      countSegDeletions:segId -> 1
-      countSegSize:segId -> 1000
+      <countSegDeletions>:segId -> 1
+      <countSegSize>:segId -> 1000
 
     summary row (a singleton row) -> lastUsedSegId
 
