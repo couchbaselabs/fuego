@@ -36,55 +36,35 @@ For each incoming batch, fuego does...
 The format of important KV rows looks like...
 
     postings
-      postings:field4:'lazy'-segId:recIds -> [recId1, recId2, recId3]
-      postings:field4:'lazy'-segId:fieldNorms -> [0, 1, 2]
-      postings:field4:'lazy'-segId:positions -> [[], [], []]
+      <postings>:field4:'lazy'-segId:<recIds> -> [recId1, recId2, recId3]
+      <postings>:field4:'lazy'-segId:<fieldNorms> -> [0, 1, 2]
+      <postings>:field4:'lazy'-segId:>positions> -> [[], [], []]
 
         note that an iterator can Next() through all of the postings columns quickly.
 
-    stored fields
-      stored:batch0xffffc-recId1:field0:arrayPositions -> "typ:user1234" // The docId.
-      stored:batch0xffffc-recId1:field1:arrayPositions -> "typ:john@email.com"
-
-        note that an iterator can Next() through all of the stored fields
-        of a record quickly.
-
-    docId lookups // Newer segId's appear first since segId's grow downwards.
-                  // Perhaps can just fold this into the backIndex.
-      docId:user1234(0x00)batch0xffffc -> recId1
-      docId:user1234(0x00)batch0xffffe -> recId1
-
-        note that an iterator can find the most recent batch for a docId
-        and Next() through a docId's history quickly.
-
     deletions // Need this to be able to efficiently ignore obsoleted recId's in postings
-      deletion:batch0xffffe-recId1 -> nil
+      <deletion>:segId-recId1 -> nil
 
     counts
-      countBatchDeletions:batch0xffffe -> 1
-      countBatchSize:batch0xffffe -> 1000
+      countSegDeletions:segId -> 1
+      countSegSize:segId -> 1000
+
+    also, add the segId:recId to the value of each BackIndexRow.
 
 Asynchronous GC's of KV rows...
 
-    that represent outdated batches and records.
+    that represent outdated seg's and records.
 
-    scan the counts to see which batches might have the most garbage?
+    scan the counts to see which seg's might have the most garbage?
 
-    for example, "docId:user1234(0x00)batch0xffffe" is outdated
-      due to the newer, younger "docId:user1234(0x00)batch0xffffc" record...
+    for example, doc "user-1234" in segIdffffe is outdated
+      due to the newer, younger update of "user-1234" in segIdffffc, so...
 
-      so also need to delete...
-        "deletion:batch0xffffe-recId1"
+      need to delete...
+        "<deletion>:segIdffffe-recId1"
 
-        and go through all the postings on any field with batch0xffffe, recId1
+        and go through all the postings on any field with segIdffffe, recId1
           maybe just use a postings iterator and a recId set filter?
-
-        and any other stored fields with batch0xffffe-recId1
-
-      we use "docId:" record instead of "deletion:" record to look
-        for outdated information as it has more information.
-        or, perhaps scan the deletion:segId-recId records,
-        to focus on one batch at a time?
 
 need a way to coallesce batches?
 - create a new coallesced batch, but atomically remove the old, input batches?

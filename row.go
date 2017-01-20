@@ -34,8 +34,6 @@ type KVRow interface {
 func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 	if len(key) > 0 {
 		switch key[0] {
-		case 'D':
-			return NewDocIDRowKV(key, value)
 		case 'P':
 			switch key[len(key)-1] {
 			case 'c':
@@ -47,8 +45,6 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 			}
 			return nil, fmt.Errorf("Unknown posting type '%s'", string(key[len(key)-1]))
 
-		case 'S':
-			return NewSegRecStoredRowKV(key, value)
 		case 'b':
 			return NewBackIndexRowKV(key, value)
 		case 'd':

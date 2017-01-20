@@ -128,9 +128,6 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		}
 	}()
 
-	// TODO: Retrieve docIDRow's concurrent with analysis.
-	// TODO: Or, just put the recId's also in the backIndexRow's.
-
 	// Wait for analyze results.
 	batchEntriesPre := make([]batchEntry, len(batch.IndexOps))           // Prealloc'ed.
 	batchEntriesArr := make(batchEntries, 0, len(batch.IndexOps))        // Sorted by docID.
@@ -505,20 +502,15 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 	return writer.ExecuteBatch(wb)
 }
 
-func (udc *Fuego) mergeOldAndNew(segId uint64, backIndexRow *BackIndexRow, batchEntry *batchEntry) (
+func (udc *Fuego) mergeOldAndNew(segId uint64,
+	backIndexRow *BackIndexRow, batchEntry *batchEntry) (
 	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
 	ar := batchEntry.analyzeResult
 
-	docIDRow := NewDocIDRow(ar.DocIDBytes, segId, batchEntry.recId)
-
 	numRows := len(ar.FieldRows) + len(ar.TermFreqRows) + len(ar.StoredRows)
 
-	numRows += len(ar.StoredRows) // For SegRecStoredRow's.
-
 	if ar.BackIndexRow != nil {
-		numRows += 1
-
-		numRows += 1 // For docIDRow.
+		numRows += 1 // For the backIndexRow.
 	}
 
 	addRows = make([]KVRow, 0, numRows)
@@ -538,28 +530,18 @@ func (udc *Fuego) mergeOldAndNew(segId uint64, backIndexRow *BackIndexRow, batch
 			addRows = append(addRows, ar.BackIndexRow)
 		}
 
-		// fuego rows...
-
-		addRows = append(addRows, docIDRow)
-
-		for _, row := range ar.StoredRows {
-			addRows = append(addRows, row.ToSegRecStoredRow(segId, batchEntry.recId))
-		}
-
 		return addRows, nil, nil
 	}
 
 	updateRows = make([]KVRow, 0, numRows)
 	deleteRows = make([]KVRow, 0, numRows)
 
-	var mark struct{}
-
 	var existingTermKeys map[string]struct{}
 	backIndexTermKeys := backIndexRow.AllTermKeys()
 	if len(backIndexTermKeys) > 0 {
 		existingTermKeys = make(map[string]struct{}, len(backIndexTermKeys))
 		for _, key := range backIndexTermKeys {
-			existingTermKeys[string(key)] = mark
+			existingTermKeys[string(key)] = struct{}{}
 		}
 	}
 
@@ -568,7 +550,7 @@ func (udc *Fuego) mergeOldAndNew(segId uint64, backIndexRow *BackIndexRow, batch
 	if len(backIndexStoredKeys) > 0 {
 		existingStoredKeys = make(map[string]struct{}, len(backIndexStoredKeys))
 		for _, key := range backIndexStoredKeys {
-			existingStoredKeys[string(key)] = mark
+			existingStoredKeys[string(key)] = struct{}{}
 		}
 	}
 
@@ -588,7 +570,6 @@ func (udc *Fuego) mergeOldAndNew(segId uint64, backIndexRow *BackIndexRow, batch
 			if _, ok := existingTermKeys[string(keyBuf[:keySize])]; ok {
 				updateRows = append(updateRows, row)
 				delete(existingTermKeys, string(keyBuf[:keySize]))
-
 				continue
 			}
 		}
@@ -606,25 +587,16 @@ func (udc *Fuego) mergeOldAndNew(segId uint64, backIndexRow *BackIndexRow, batch
 			if _, ok := existingStoredKeys[string(keyBuf[:keySize])]; ok {
 				updateRows = append(updateRows, row)
 				delete(existingStoredKeys, string(keyBuf[:keySize]))
-
-				updateRows = append(updateRows,
-					row.ToSegRecStoredRow(segId, batchEntry.recId))
-
 				continue
 			}
 		}
 
 		addRows = append(addRows, row)
-
-		addRows = append(addRows,
-			row.ToSegRecStoredRow(segId, batchEntry.recId))
 	}
 
 	if ar.BackIndexRow != nil {
 		updateRows = append(updateRows, ar.BackIndexRow)
 	}
-
-	updateRows = append(updateRows, docIDRow)
 
 	PutRowBuffer(keyBuf)
 
