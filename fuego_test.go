@@ -297,8 +297,8 @@ func TestIndexInsertThenDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for dictionary row garbage, 3*2 for posting recId/freqNorm/vec rows)
-	expectedLength := uint64(1 + 1 + 1 + 1 + 6)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for dictionary row garbage, 3*2 for posting recId/freqNorm/vec rows), 2 deletionRows
+	expectedLength := uint64(1 + 1 + 1 + 1 + 6 + 2)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -333,10 +333,20 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 	}()
 
 	doc := document.NewDocument("1")
-	doc.AddField(document.NewTextField("name", []uint64{}, []byte("test")))
+	doc.AddField(document.NewTextFieldWithAnalyzer("name", []uint64{}, []byte("test"), testAnalyzer))
 	err = idx.Update(doc)
 	if err != nil {
 		t.Errorf("Error updating index: %v", err)
+	}
+
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the termFreqRow, 1 for the term counts, 1 for the back index entry, 3 for posting recId/freqNorm/vec rows)
+	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 3)
+	rowCount, err := idx.(*Fuego).rowCount()
+	if err != nil {
+		t.Error(err)
+	}
+	if rowCount != expectedLength {
+		t.Errorf("expected %d rows, got: %d", expectedLength, rowCount)
 	}
 
 	// this update should overwrite one term, and introduce one new one
@@ -347,9 +357,9 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Errorf("Error deleting entry from index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 2 for the two term, 2 for the term counts, 1 for the back index entry, 3 + 3*2 for posting recId/freqNorm/vec rows)
-	expectedLength := uint64(1 + 1 + 1 + 2 + 2 + 1 + 9)
-	rowCount, err := idx.(*Fuego).rowCount()
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 2 for the two termFreqRows, 2 for the term counts, 1 for the back index entry, 3 + 3*2 for posting recId/freqNorm/vec rows, 1 for deletionRow)
+	expectedLength = uint64(1 + 1 + 1 + 2 + 2 + 1 + 9 + 1)
+	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
 	}
@@ -359,14 +369,14 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 
 	// now do another update that should remove one of the terms
 	doc = document.NewDocument("1")
-	doc.AddField(document.NewTextField("name", []uint64{}, []byte("fail")))
+	doc.AddField(document.NewTextFieldWithAnalyzer("name", []uint64{}, []byte("fail"), testAnalyzer))
 	err = idx.Update(doc)
 	if err != nil {
 		t.Errorf("Error deleting entry from index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the remaining term, 2 for the term diciontary, 1 for the back index entry, 3+3*2+3 for posting recId/freqNorm/vec rows)
-	expectedLength = uint64(1 + 1 + 1 + 1 + 2 + 1 + 12)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the remaining termFreqRow, 2 for the term dictionary, 1 for the back index entry, 3+3*2+3 for posting recId/freqNorm/vec rows, 2 for deletionRows)
+	expectedLength = uint64(1 + 1 + 1 + 1 + 2 + 1 + 12 + 2)
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -1133,8 +1143,8 @@ func TestIndexUpdateComposites(t *testing.T) {
 		t.Errorf("expected field content 'test', got '%s'", string(textField.Value()))
 	}
 
-	// should have the same row count as before, plus 4 term dictionary garbage rows, 3*2 + 3*2 for posting recId/freqNorm/vec rows
-	expectedLength += 4 + 12
+	// should have the same row count as before, plus 4 term dictionary garbage rows, 3*2 + 3*2 for posting recId/freqNorm/vec rows, plus 1 deletionRow.
+	expectedLength += 4 + 12 + 1
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)

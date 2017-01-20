@@ -280,10 +280,15 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	for dbir := range docBackIndexRowCh {
 		if dbir.doc == nil {
 			if dbir.backIndexRow != nil { // A deletion.
+				addRowsAll = append(addRowsAll, []KVRow{
+					NewDeletionRow(dbir.backIndexRow.segId, dbir.backIndexRow.recId),
+				})
+
 				deleteRows := udc.deleteSingle(dbir.docIDBytes, dbir.backIndexRow, nil)
 				if len(deleteRows) > 0 {
 					deleteRowsAll = append(deleteRowsAll, deleteRows)
 				}
+
 				docsDeleted++
 			}
 		} else {
@@ -510,7 +515,14 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 	numRows := len(ar.FieldRows) + len(ar.TermFreqRows) + len(ar.StoredRows)
 
 	if ar.BackIndexRow != nil {
-		numRows += 1 // For the backIndexRow.
+		ar.BackIndexRow.segId = segId
+		ar.BackIndexRow.recId = batchEntry.recId
+
+		numRows += 1
+	}
+
+	if backIndexRow != nil {
+		numRows += 1 // For the deletionRow.
 	}
 
 	addRows = make([]KVRow, 0, numRows)
@@ -554,11 +566,11 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		}
 	}
 
-	keyBuf := GetRowBuffer()
-
 	for _, row := range ar.FieldRows {
 		updateRows = append(updateRows, row)
 	}
+
+	keyBuf := GetRowBuffer()
 
 	for _, row := range ar.TermFreqRows {
 		if existingTermKeys != nil {
@@ -594,11 +606,13 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		addRows = append(addRows, row)
 	}
 
+	PutRowBuffer(keyBuf)
+
 	if ar.BackIndexRow != nil {
 		updateRows = append(updateRows, ar.BackIndexRow)
 	}
 
-	PutRowBuffer(keyBuf)
+	addRows = append(addRows, NewDeletionRow(backIndexRow.segId, backIndexRow.recId))
 
 	// any of the existing rows that weren't updated need to be deleted
 	for existingTermKey := range existingTermKeys {
