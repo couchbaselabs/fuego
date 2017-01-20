@@ -19,61 +19,66 @@ import (
 	"fmt"
 )
 
-type DeletionRow struct {
+type IdRow struct {
 	segId uint64
 	recId uint64
+	docID []byte
 }
 
-func (p *DeletionRow) SegId() uint64 {
+func (p *IdRow) SegId() uint64 {
 	return p.segId
 }
 
-func (p *DeletionRow) RecId() uint64 {
+func (p *IdRow) RecId() uint64 {
 	return p.recId
 }
 
-func (p *DeletionRow) Key() []byte {
+func (p *IdRow) Key() []byte {
 	buf := make([]byte, p.KeySize())
 	size, _ := p.KeyTo(buf)
 	return buf[:size]
 }
 
-func (p *DeletionRow) KeySize() int {
+func (p *IdRow) KeySize() int {
 	return 1 + 8 + 8
 }
 
-func (p *DeletionRow) KeyTo(buf []byte) (int, error) {
-	buf[0] = 'x'
+func (p *IdRow) KeyTo(buf []byte) (int, error) {
+	buf[0] = 'I'
 	binary.LittleEndian.PutUint64(buf[1:], p.segId)
 	binary.LittleEndian.PutUint64(buf[1+8:], p.recId)
 	return 1 + 8 + 8, nil
 }
 
-func (p *DeletionRow) Value() []byte {
-	return nil
+func (p *IdRow) Value() []byte {
+	buf := make([]byte, p.ValueSize())
+	size, _ := p.ValueTo(buf)
+	return buf[:size]
 }
 
-func (p *DeletionRow) ValueSize() int {
-	return 0
+func (p *IdRow) ValueSize() int {
+	return len(p.docID)
 }
 
-func (p *DeletionRow) ValueTo(buf []byte) (int, error) {
-	return 0, nil
+func (p *IdRow) ValueTo(buf []byte) (int, error) {
+	return copy(buf, p.docID), nil
 }
 
-func (p *DeletionRow) String() string {
-	return fmt.Sprintf("Deletion segId: %d, recId: %d", p.segId, p.recId)
+func (p *IdRow) String() string {
+	return fmt.Sprintf("Id segId: %d, recId: %d, docID: %s",
+		p.segId, p.recId, string(p.docID))
 }
 
-func NewDeletionRow(segId uint64, recId uint64) *DeletionRow {
-	return &DeletionRow{
+func NewIdRow(segId uint64, recId uint64, docID []byte) *IdRow {
+	return &IdRow{
 		segId: segId,
 		recId: recId,
+		docID: docID,
 	}
 }
 
-func NewDeletionRowK(key []byte) (*DeletionRow, error) {
-	rv := &DeletionRow{}
+func NewIdRowK(key []byte) (*IdRow, error) {
+	rv := &IdRow{}
 	err := rv.parseK(key)
 	if err != nil {
 		return nil, err
@@ -81,18 +86,19 @@ func NewDeletionRowK(key []byte) (*DeletionRow, error) {
 	return rv, nil
 }
 
-func (p *DeletionRow) parseK(key []byte) error {
-	p.segId = binary.LittleEndian.Uint64(key[1:1+8])
-	p.recId = binary.LittleEndian.Uint64(key[1+8:1+8+8])
+func (p *IdRow) parseK(key []byte) error {
+	p.segId = binary.LittleEndian.Uint64(key[1 : 1+8])
+	p.recId = binary.LittleEndian.Uint64(key[1+8 : 1+8+8])
 	return nil
 }
 
-func (p *DeletionRow) parseV(value []byte) error {
+func (p *IdRow) parseV(value []byte) error {
+	p.docID = append(p.docID[:0], value...)
 	return nil
 }
 
-func NewDeletionRowKV(key, value []byte) (*DeletionRow, error) {
-	rv, err := NewDeletionRowK(key)
+func NewIdRowKV(key, value []byte) (*IdRow, error) {
+	rv, err := NewIdRowK(key)
 	if err != nil {
 		return nil, err
 	}

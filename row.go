@@ -44,7 +44,8 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 				return NewPostingVecsRowKV(key, value)
 			}
 			return nil, fmt.Errorf("Unknown posting type '%s'", string(key[len(key)-1]))
-
+		case 'I':
+			return NewIdRowKV(key, value)
 		case 'b':
 			return NewBackIndexRowKV(key, value)
 		case 'd':
@@ -59,8 +60,6 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 			return NewTermFrequencyRowKV(key, value)
 		case 'v':
 			return NewVersionRowKV(key, value)
-		case 'x':
-			return NewDeletionRowKV(key, value)
 		case 'z':
 			return NewSummaryRowKV(key, value)
 		}

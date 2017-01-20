@@ -17,39 +17,61 @@ For each incoming batch, fuego does...
     assign a unique, ever-decreasing segId (uint64) which starts from MAX_UINT64,
       which allows newer seg's to show up first in an ordered key-val store.
 
-    sort / collate the docId's ASC, into...
-      []*AnalyzeAuxResult
-      map[docId]*AnalyzeAuxResult
+    collate the analysis results into...
+      var batchEntriesMap map[docID]*batchEntry
+      var batchEntriesArr [][]*batchEntry
 
-    assign the recId's based on the position of each docID in the sorted array of docID's
+    assign the recId's based on the position of each batchEntry
+      in the batchEntriesArr.
 
     fill a map[term][]TermFreqRow, where the arrays will be sorted by recId's.
-
-    sort the map keys by term.
 
     use that to construct the postings.
 
     for each doc in the batch, also maintain any new FieldRows (global).
 
-    add the posting rows, stored rows, docId lookup rows, and deletions from previous segments.
+    add the posting rows, stored rows, docID lookup rows,
+      and deletions from previous segments.
 
-The format of important KV rows looks like...
+We keep most of the KV row types from upsidedown, but also add the
+  segId:recId info to the value of each BackIndexRow.
+
+But, also no longer persist the TermFrequencyRow's -- the
+  TermFrequencyRow's are still used, but only temporarily, in-memory,
+  on the pathway between analysis to the KV store API.
+
+Also, additional, persisted KV rows introduced by fuego would be...
 
     postings
       <postings>:field4:'lazy'-segId:<recIds> -> [recId1, recId2, recId3]
       <postings>:field4:'lazy'-segId:<fieldNorms> -> [0, 1, 2]
       <postings>:field4:'lazy'-segId:>positions> -> [[], [], []]
 
-        note that an iterator can Next() through all of the postings columns quickly.
+        note that an iterator can Next() through all
+          of the postings columns quickly.
 
-    deletions // Need this to be able to efficiently ignore obsoleted recId's in postings
-      <deletion>:segId-recId1 -> nil
+    id lookups from internalId to externalId
+      <id>:segId:recId -> docID
+
+      lookups from externalId to internalId would go through the
+        backIndexRow, where we'll also track the segId:recId info as
+        part of the backIndexRow value.
+
+      The id lookup rows are deleted synchronously in a Batch(),
+        as part of the backIndex driven mergeOldAndNew().
+
+      A missing (already deleted) id lookup row for a segId:recId
+        means that the recId must be ignored in the postings.
 
     counts
       countSegDeletions:segId -> 1
       countSegSize:segId -> 1000
 
-    also, add the segId:recId to the value of each BackIndexRow.
+    summary row (a singleton row) -> lastUsedSegId
+
+      Similar to the version row, there's only one summary row, which
+      tracks the lastUsedSegId, and perhaps other future index-global
+      information.
 
 Asynchronous GC's of KV rows...
 

@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
-	"sort"
 	"sync/atomic"
 	"time"
 
@@ -98,12 +97,6 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	udc.writeMutex.Lock()
 	defer udc.writeMutex.Unlock()
 
-	// The segId's decrease or drop downwards from MAX_UINT64,
-	// which allows newer/younger seg's to appear first in iterators.
-	udc.summaryRow.LastUsedSegId = udc.summaryRow.LastUsedSegId - 1
-
-	currSegId := udc.summaryRow.LastUsedSegId
-
 	go func() { // Retrieve back index rows concurrent with analysis.
 		defer close(docBackIndexRowCh)
 
@@ -127,45 +120,46 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		}
 	}()
 
+	// The segId's decrease or drop downwards from MAX_UINT64,
+	// which allows newer/younger seg's to appear first in iterators.
+	udc.summaryRow.LastUsedSegId = udc.summaryRow.LastUsedSegId - 1
+
+	currSegId := udc.summaryRow.LastUsedSegId
+
 	// Wait for analyze results.
 	batchEntriesPre := make([]batchEntry, len(batch.IndexOps))           // Prealloc'ed.
 	batchEntriesArr := make(batchEntries, 0, len(batch.IndexOps))        // Sorted by docID.
 	batchEntriesMap := make(map[string]*batchEntry, len(batch.IndexOps)) // Keyed by docID.
 
 	var numBatchEntries int
+	var numTermFreqRows int
 
 	for numBatchEntries < numUpdates {
 		analyzeResult := <-analyzeResultCh
 
 		batchEntry := &batchEntriesPre[numBatchEntries]
+		numBatchEntries++
+
 		batchEntry.analyzeResult = analyzeResult
+		batchEntry.recId = uint64(numBatchEntries)
 
 		batchEntriesArr = append(batchEntriesArr, batchEntry)
-
 		batchEntriesMap[analyzeResult.DocID] = batchEntry
 
-		numBatchEntries++
+		numTermFreqRows += len(analyzeResult.TermFreqRows)
 	}
 
 	close(analyzeResultCh)
 
+	// NOTE: We might consider sorting the batchEntriesArr by docID,
+	// ASC, in order to have the recId's also have the same sorted
+	// ordering as docID's, but we'll skip this for now until we
+	// figure out if there's a performance win.
+	//   sort.Sort(batchEntriesArr)
+
 	atomic.AddUint64(&udc.stats.analysisTime, uint64(time.Since(analysisStart)))
 
 	indexStart := time.Now()
-
-	sort.Sort(batchEntriesArr) // Sort batchEntriesArr by docID ASC.
-
-	// Assign recId's, starting from 1, based on the position of each
-	// docID in the sorted docID's.
-	var nextRecId uint64 = 1
-	var numTermFreqRows int
-
-	for _, batchEntry := range batchEntriesArr {
-		batchEntry.recId = nextRecId
-		nextRecId++
-
-		numTermFreqRows += len(batchEntry.analyzeResult.TermFreqRows)
-	}
 
 	// Fill the fieldTerms array and the fieldTermBatchEntryTFRs map.
 	fieldTerms := fieldTerms(nil)
@@ -184,12 +178,9 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 			batchEntryTFR.batchEntry = batchEntry
 			batchEntryTFR.termFreqRowIdx = tfrIdx
 
-			// Since we are driving the loop from the sorted
-			// batchEntriesArr, the array values in the
-			// fieldTermBatchEntryTFRs will inherit the docID / recId
-			// ASC ordering.  In a sense, we're bucketing or collating
-			// or grouping by the fieldTerm's, keeping the overall
-			// batchEntriesArr ordering.
+			// We're bucketing or grouping by the fieldTerm's, but
+			// also keeping the overall ordering driven by the
+			// batchEntriesArr.
 			batchEntryTFRs := fieldTermBatchEntryTFRs[fieldTerm]
 			if batchEntryTFRs == nil {
 				fieldTerms = append(fieldTerms, fieldTerm)
@@ -200,8 +191,10 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		}
 	}
 
-	// Sort the fieldTerms by field ASC, term ASC.
-	sort.Sort(fieldTerms)
+	// NOTE: We might consider sorting the fieldTerms by field ASC,
+	// term ASC, but skipping this for now until we can figure out if
+	// there's a performance win.
+	//   sort.Sort(fieldTerms)
 
 	// Need a summary row update.
 	addRowsAll := [][]KVRow(nil)
@@ -279,11 +272,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	for dbir := range docBackIndexRowCh {
 		if dbir.doc == nil {
 			if dbir.backIndexRow != nil { // A deletion.
-				addRowsAll = append(addRowsAll, []KVRow{
-					NewDeletionRow(dbir.backIndexRow.segId, dbir.backIndexRow.recId),
-				})
-
-				deleteRows := udc.deleteSingle(dbir.docIDBytes, dbir.backIndexRow, nil)
+				deleteRows := udc.deleteSingle(dbir.docIDBytes, dbir.backIndexRow)
 				if len(deleteRows) > 0 {
 					deleteRowsAll = append(deleteRowsAll, deleteRows)
 				}
@@ -345,9 +334,11 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	return nil
 }
 
-func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow, deleteRows []KVRow) []KVRow {
-	for _, backIndexEntry := range backIndexRow.termEntries {
-		tfr := NewTermFrequencyRow([]byte(*backIndexEntry.Term), uint16(*backIndexEntry.Field), idBytes, 0, 0)
+func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow) []KVRow {
+	deleteRows := make([]KVRow, 0, len(backIndexRow.termEntries)+len(backIndexRow.storedEntries)+2)
+
+	for _, te := range backIndexRow.termEntries {
+		tfr := NewTermFrequencyRow([]byte(*te.Term), uint16(*te.Field), idBytes, 0, 0)
 		deleteRows = append(deleteRows, tfr)
 	}
 
@@ -355,6 +346,8 @@ func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow, delet
 		sf := NewStoredRow(idBytes, uint16(*se.Field), se.ArrayPositions, 'x', nil)
 		deleteRows = append(deleteRows, sf)
 	}
+
+	deleteRows = append(deleteRows, NewIdRow(backIndexRow.segId, backIndexRow.recId, nil))
 
 	// also delete the backIndexRow itself
 	return append(deleteRows, backIndexRow)
@@ -511,20 +504,14 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow) {
 	ar := batchEntry.analyzeResult
 
-	numRows := len(ar.FieldRows) + len(ar.TermFreqRows) + len(ar.StoredRows)
+	ar.BackIndexRow.segId = segId
+	ar.BackIndexRow.recId = batchEntry.recId
 
-	if ar.BackIndexRow != nil {
-		ar.BackIndexRow.segId = segId
-		ar.BackIndexRow.recId = batchEntry.recId
-
-		numRows += 1
-	}
-
-	if backIndexRow != nil {
-		numRows += 1 // For the deletionRow.
-	}
+	numRows := 2 + len(ar.FieldRows) + len(ar.TermFreqRows) + len(ar.StoredRows)
 
 	addRows = make([]KVRow, 0, numRows)
+	addRows = append(addRows, ar.BackIndexRow)
+	addRows = append(addRows, NewIdRow(ar.BackIndexRow.segId, ar.BackIndexRow.recId, ar.DocIDBytes))
 
 	if backIndexRow == nil {
 		for _, row := range ar.FieldRows {
@@ -537,15 +524,14 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 			addRows = append(addRows, row)
 		}
 
-		if ar.BackIndexRow != nil {
-			addRows = append(addRows, ar.BackIndexRow)
-		}
-
 		return addRows, nil, nil
 	}
 
 	updateRows = make([]KVRow, 0, numRows)
-	deleteRows = make([]KVRow, 0, numRows)
+
+	for _, row := range ar.FieldRows {
+		updateRows = append(updateRows, row)
+	}
 
 	var existingTermKeys map[string]struct{}
 	backIndexTermKeys := backIndexRow.AllTermKeys()
@@ -563,10 +549,6 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		for _, key := range backIndexStoredKeys {
 			existingStoredKeys[string(key)] = struct{}{}
 		}
-	}
-
-	for _, row := range ar.FieldRows {
-		updateRows = append(updateRows, row)
 	}
 
 	keyBuf := GetRowBuffer()
@@ -607,13 +589,12 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 
 	PutRowBuffer(keyBuf)
 
-	if ar.BackIndexRow != nil {
-		updateRows = append(updateRows, ar.BackIndexRow)
-	}
+	deleteRows = make([]KVRow, 0, 1 + len(existingTermKeys) + len(existingStoredKeys))
 
-	addRows = append(addRows, NewDeletionRow(backIndexRow.segId, backIndexRow.recId))
+	deleteRows = append(deleteRows,
+		NewIdRow(backIndexRow.segId, backIndexRow.recId, nil))
 
-	// any of the existing rows that weren't updated need to be deleted
+	// any of the existing termFrequenceRows that weren't updated need to be deleted
 	for existingTermKey := range existingTermKeys {
 		termFreqRow, err := NewTermFrequencyRowK([]byte(existingTermKey))
 		if err == nil {
@@ -621,7 +602,7 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		}
 	}
 
-	// any of the existing stored fields that weren't updated need to be deleted
+	// any of the existing storedRows that weren't updated need to be deleted
 	for existingStoredKey := range existingStoredKeys {
 		storedRow, err := NewStoredRowK([]byte(existingStoredKey))
 		if err == nil {
