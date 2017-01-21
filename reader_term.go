@@ -103,6 +103,17 @@ func (r *TermFieldReader) Count() uint64 {
 }
 
 func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
+	return r.UpsideDownNext(preAlloced)
+}
+
+func (r *TermFieldReader) Advance(wantId index.IndexInternalID, preAlloced *index.TermFieldDoc) (
+	*index.TermFieldDoc, error) {
+	return r.UpsideDownAdvance(wantId, preAlloced)
+}
+
+// --------------------------------------------------
+
+func (r *TermFieldReader) UpsideDownNext(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
 	if r.iter != nil {
 		// We treat tfrNext also like an initialization flag, which
 		// tells us whether we need to invoke the underlying
@@ -147,14 +158,14 @@ func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermField
 	return nil, nil
 }
 
-func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index.TermFieldDoc) (
+func (r *TermFieldReader) UpsideDownAdvance(wantId index.IndexInternalID, preAlloced *index.TermFieldDoc) (
 	*index.TermFieldDoc, error) {
 	if r.iter != nil {
 		if r.tfrNext == nil {
 			r.tfrNext = &TermFrequencyRow{}
 		}
 
-		tfr := InitTermFrequencyRow(r.tfrNext, r.term, r.field, docID, 0, 0)
+		tfr := InitTermFrequencyRow(r.tfrNext, r.term, r.field, wantId, 0, 0)
 		keyBuf, err := tfr.KeyAppendTo(r.keyBuf[:0])
 		if err != nil {
 			return nil, err
@@ -230,7 +241,7 @@ func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.Ter
 	return rv
 }
 
-// ---------------------------------------------
+// --------------------------------------------------
 
 func closeSegPostingsArr(arr []*segPostings) {
 	for _, sp := range arr {
@@ -316,6 +327,8 @@ func loadSegPostingsArr(kvreader store.KVReader, field uint16, term []byte) ([]*
 
 	return rv, nil
 }
+
+// --------------------------------------------------
 
 func (r *TermFieldReader) PostingsNext(preAlloced *index.TermFieldDoc) (
 	*index.TermFieldDoc, error) {
