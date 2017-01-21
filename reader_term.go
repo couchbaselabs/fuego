@@ -15,6 +15,7 @@
 package fuego
 
 import (
+	"fmt"
 	"sync/atomic"
 
 	"github.com/blevesearch/bleve/index"
@@ -33,6 +34,21 @@ type TermFieldReader struct {
 	includeNorm        bool
 	includeTermVectors bool
 }
+
+type postings struct {
+	term        []byte
+	segPostings []*segPostings
+	field       uint16
+}
+
+type segPostings struct {
+	rowRecIds    *PostingRecIdsRow
+	rowFreqNorms *PostingFreqNormsRow
+	rowVecs      *PostingVecsRow
+	idIter       store.KVIterator
+}
+
+// ---------------------------------------------
 
 func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 	includeFreq, includeNorm, includeTermVectors bool) (*TermFieldReader, error) {
@@ -57,6 +73,8 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 	if err != nil {
 		return nil, err
 	}
+
+	loadPostings(indexReader.kvreader, field, term)
 
 	tfr := NewTermFrequencyRow(term, field, nil, 0, 0)
 
@@ -203,4 +221,67 @@ func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.Ter
 	}
 
 	return rv
+}
+
+// ---------------------------------------------
+
+func loadPostings(kvreader store.KVReader, field uint16, term []byte) (*postings, error) {
+	buf := make([]byte, PostingRowKeySize(term))
+	bufUsed := PostingRowKeyPrefix(field, term, buf)
+	buf = buf[:bufUsed]
+
+	it := kvreader.PrefixIterator(buf)
+	defer it.Close()
+
+	rv := &postings{
+		field: field,
+		term:  term,
+	}
+
+	k, v, valid := it.Current()
+	for valid {
+		rowRecIds, err := NewPostingRecIdsRowKV(k, v)
+		if err != nil {
+			return nil, err
+		}
+
+		it.Next()
+		k, v, valid = it.Current()
+		if !valid {
+			return nil, fmt.Errorf("expected postingFreqNormsRow")
+		}
+
+		rowFreqNorms, err := NewPostingFreqNormsRowKV(k, v)
+		if err != nil {
+			return nil, err
+		}
+		if rowFreqNorms.segId != rowRecIds.segId {
+			return nil, fmt.Errorf("mismatched segId's for postingFreqNormsRow")
+		}
+
+		it.Next()
+		k, v, valid = it.Current()
+		if !valid {
+			return nil, fmt.Errorf("expected postingVecsRow")
+		}
+
+		rowVecs, err := NewPostingVecsRowKV(k, v)
+		if err != nil {
+			return nil, err
+		}
+		if rowVecs.segId != rowRecIds.segId {
+			return nil, fmt.Errorf("mismatched segId's for postingVecsRow")
+		}
+
+		it.Next()
+		k, v, valid = it.Current()
+
+		rv.segPostings = append(rv.segPostings, &segPostings{
+			rowRecIds:    rowRecIds,
+			rowFreqNorms: rowFreqNorms,
+			rowVecs:      rowVecs,
+		})
+	}
+
+	return rv, nil
 }

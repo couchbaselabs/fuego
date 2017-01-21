@@ -27,18 +27,6 @@ type PostingFreqNormsRow struct {
 	freqNorms []uint32
 }
 
-func (p *PostingFreqNormsRow) Field() uint16 {
-	return p.field
-}
-
-func (p *PostingFreqNormsRow) Term() []byte {
-	return p.term
-}
-
-func (p *PostingFreqNormsRow) SegId() uint64 {
-	return p.segId
-}
-
 func (p *PostingFreqNormsRow) Freq(i int) uint32 {
 	return p.freqNorms[i*2]
 }
@@ -54,7 +42,7 @@ func (p *PostingFreqNormsRow) Key() []byte {
 }
 
 func (p *PostingFreqNormsRow) KeySize() int {
-	return 1 + 2 + len(p.term) + 1 + 8 + 1
+	return PostingRowKeySize(p.term)
 }
 
 func (p *PostingFreqNormsRow) KeyTo(buf []byte) (int, error) {

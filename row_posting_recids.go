@@ -19,46 +19,8 @@ import (
 	"fmt"
 )
 
-type PostingRecIdsRow struct {
-	field  uint16 // Part of the row's key.
-	term   []byte // Part of the row's key.
-	segId  uint64 // Part of the row's key.
-	recIds []uint64
-}
-
-func (p *PostingRecIdsRow) Field() uint16 {
-	return p.field
-}
-
-func (p *PostingRecIdsRow) Term() []byte {
-	return p.term
-}
-
-func (p *PostingRecIdsRow) SegId() uint64 {
-	return p.segId
-}
-
-func (p *PostingRecIdsRow) RecIds() []uint64 {
-	return p.recIds
-}
-
-func (p *PostingRecIdsRow) Key() []byte {
-	buf := make([]byte, p.KeySize())
-	size, _ := p.KeyTo(buf)
-	return buf[:size]
-}
-
-func (p *PostingRecIdsRow) KeySize() int {
-	return 1 + 2 + len(p.term) + 1 + 8 + 1
-}
-
-func (p *PostingRecIdsRow) KeyTo(buf []byte) (int, error) {
-	used := PostingRowKeyPrefix(p.field, p.term, buf)
-	binary.LittleEndian.PutUint64(buf[used:used+8], p.segId)
-	used += 8
-	buf[used] = 'c' // Suffix 'c' comes lexically before 'f' (from freqNorm rows).
-	used += 1
-	return used, nil
+func PostingRowKeySize(term []byte) int {
+	return 1 + 2 + len(term) + 1 + 8 + 1
 }
 
 func PostingRowKeyPrefix(field uint16, term []byte, buf []byte) int {
@@ -68,6 +30,34 @@ func PostingRowKeyPrefix(field uint16, term []byte, buf []byte) int {
 	buf[used] = ByteSeparator
 	used += 1
 	return used
+}
+
+// --------------------------------------------------
+
+type PostingRecIdsRow struct {
+	field  uint16 // Part of the row's key.
+	term   []byte // Part of the row's key.
+	segId  uint64 // Part of the row's key.
+	recIds []uint64
+}
+
+func (p *PostingRecIdsRow) Key() []byte {
+	buf := make([]byte, p.KeySize())
+	size, _ := p.KeyTo(buf)
+	return buf[:size]
+}
+
+func (p *PostingRecIdsRow) KeySize() int {
+	return PostingRowKeySize(p.term)
+}
+
+func (p *PostingRecIdsRow) KeyTo(buf []byte) (int, error) {
+	used := PostingRowKeyPrefix(p.field, p.term, buf)
+	binary.LittleEndian.PutUint64(buf[used:used+8], p.segId)
+	used += 8
+	buf[used] = 'c' // Suffix 'c' comes lexically before 'f' (from freqNorm rows).
+	used += 1
+	return used, nil
 }
 
 func (p *PostingRecIdsRow) DictionaryRowKeySize() int {

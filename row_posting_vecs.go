@@ -49,14 +49,6 @@ type PostingVecsRow struct {
 	// TODO: Get rid of the 0th' offset, which is always 0?
 }
 
-func (p *PostingVecsRow) Field() uint16 {
-	return p.field
-}
-
-func (p *PostingVecsRow) Term() []byte {
-	return p.term
-}
-
 // Returns the TermVectors for the i'th record in this PostingVecsRow.
 func (p *PostingVecsRow) TermVectors(i int, prealloc []*TermVector) (
 	[]*TermVector, error) {
@@ -119,7 +111,7 @@ func (p *PostingVecsRow) Key() []byte {
 }
 
 func (p *PostingVecsRow) KeySize() int {
-	return 1 + 2 + len(p.term) + 1 + 8 + 1
+	return PostingRowKeySize(p.term)
 }
 
 func (p *PostingVecsRow) KeyTo(buf []byte) (int, error) {
