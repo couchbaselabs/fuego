@@ -30,6 +30,7 @@ type TermFieldReader struct {
 	tfrNext            *TermFrequencyRow
 	keyBuf             []byte
 	segPostingsArr     []*segPostings
+	tmpIdRow           IdRow
 	field              uint16
 	includeFreq        bool
 	includeNorm        bool
@@ -43,7 +44,7 @@ type segPostings struct {
 
 	idIter store.KVIterator // Iterates through id lookup rows.
 
-	cur int // The current recId by 0-based position.
+	nextRecIdx int // The next recId by 0-based position.
 }
 
 // ---------------------------------------------
@@ -146,19 +147,19 @@ func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermField
 }
 
 func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index.TermFieldDoc) (
-	rv *index.TermFieldDoc, err error) {
+	*index.TermFieldDoc, error) {
 	if r.iter != nil {
 		if r.tfrNext == nil {
 			r.tfrNext = &TermFrequencyRow{}
 		}
 
 		tfr := InitTermFrequencyRow(r.tfrNext, r.term, r.field, docID, 0, 0)
-		r.keyBuf, err = tfr.KeyAppendTo(r.keyBuf[:0])
+		keyBuf, err := tfr.KeyAppendTo(r.keyBuf[:0])
 		if err != nil {
 			return nil, err
 		}
 
-		r.iter.Seek(r.keyBuf)
+		r.iter.Seek(keyBuf)
 
 		key, val, valid := r.iter.Current()
 		if valid {
@@ -172,7 +173,7 @@ func (r *TermFieldReader) Advance(docID index.IndexInternalID, preAlloced *index
 				return nil, err
 			}
 
-			rv = preAlloced
+			rv := preAlloced
 			if rv == nil {
 				rv = &index.TermFieldDoc{}
 			}
@@ -316,11 +317,87 @@ func loadSegPostingsArr(kvreader store.KVReader, field uint16, term []byte) ([]*
 }
 
 func (r *TermFieldReader) PostingsNext(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
-	if len(r.segPostingsArr) <= 0 {
-		return nil, nil
-	}
+LOOP_SEG:
+	for len(r.segPostingsArr) > 0 {
+		sp := r.segPostingsArr[0]
 
-	// TODO.
+	LOOP_IDITER:
+		for true {
+			idRowKey, _, valid := sp.idIter.Current()
+			if !valid {
+				r.segPostingsArr = r.segPostingsArr[1:]
+				sp.idIter.Close()
+				sp.idIter = nil
+				continue LOOP_SEG
+			}
+
+			idRow := &r.tmpIdRow
+			err := idRow.parseK(idRowKey)
+			if err != nil {
+				return nil, err
+			}
+
+		LOOP_REC:
+			for true {
+				if sp.nextRecIdx >= len(sp.rowRecIds.recIds) {
+					r.segPostingsArr = r.segPostingsArr[1:]
+					sp.idIter.Close()
+					sp.idIter = nil
+					continue LOOP_SEG
+				}
+
+				recIdx := sp.nextRecIdx
+				sp.nextRecIdx++
+
+				recId := sp.rowRecIds.recIds[recIdx]
+
+				if idRow.recId < recId {
+					idRow.segId = sp.rowRecIds.segId
+					idRow.recId = recId
+					if cap(r.keyBuf) < IdRowKeySize {
+						r.keyBuf = make([]byte, IdRowKeySize)
+					}
+					keyBuf := r.keyBuf[0:IdRowKeySize]
+					idRow.KeyTo(keyBuf)
+					sp.idIter.Seek(keyBuf)
+					continue LOOP_IDITER
+				}
+
+				if idRow.recId > recId {
+					continue LOOP_REC // The idRow was deleted.
+				}
+
+				// The idRow.recId == recId, so found a result.
+				//
+				rv := preAlloced
+				if rv == nil {
+					rv = &index.TermFieldDoc{}
+				}
+
+				// Strip off idRow 1-byte prefix.
+				rv.ID = append(rv.ID, idRowKey[1:]...)
+
+				if r.includeFreq {
+					rv.Freq = uint64(sp.rowFreqNorms.Freq(recIdx))
+				}
+
+				if r.includeNorm {
+					rv.Norm = float64(sp.rowFreqNorms.Norm(recIdx))
+				}
+
+				if r.includeTermVectors {
+					tvs, err := sp.rowVecs.TermVectors(recIdx, nil)
+					if err != nil {
+						return nil, err
+					}
+
+					rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tvs)
+				}
+			}
+		}
+
+		// TODO.
+	}
 
 	return nil, nil
 }
