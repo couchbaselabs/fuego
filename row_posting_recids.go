@@ -53,16 +53,21 @@ func (p *PostingRecIdsRow) KeySize() int {
 }
 
 func (p *PostingRecIdsRow) KeyTo(buf []byte) (int, error) {
-	buf[0] = 'P'
-	binary.LittleEndian.PutUint16(buf[1:3], p.field)
-	used := 3 + copy(buf[3:], p.term)
-	buf[used] = ByteSeparator
-	used += 1
+	used := PostingRowKeyPrefix(p.field, p.term, buf)
 	binary.LittleEndian.PutUint64(buf[used:used+8], p.segId)
 	used += 8
-	buf[used] = 'c' // Using suffix 'c', which lexically is before 'f' (from freqNorm rows).
+	buf[used] = 'c' // Suffix 'c' comes lexically before 'f' (from freqNorm rows).
 	used += 1
 	return used, nil
+}
+
+func PostingRowKeyPrefix(field uint16, term []byte, buf []byte) int {
+	buf[0] = 'P'
+	binary.LittleEndian.PutUint16(buf[1:3], field)
+	used := 3 + copy(buf[3:], term)
+	buf[used] = ByteSeparator
+	used += 1
+	return used
 }
 
 func (p *PostingRecIdsRow) DictionaryRowKeySize() int {
