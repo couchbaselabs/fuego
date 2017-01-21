@@ -21,9 +21,18 @@ import (
 	"github.com/blevesearch/bleve/index"
 )
 
-func (i *IndexReader) ExternalID(id index.IndexInternalID) (string, error) {
+func (i *IndexReader) ExternalID(internalId index.IndexInternalID) (string, error) {
+	docIDBytes, err := i.ExternalIDBytes(internalId)
+	if err != nil {
+		return "", err
+	}
+
+	return string(docIDBytes), nil
+}
+
+func (i *IndexReader) ExternalIDBytes(internalId index.IndexInternalID) ([]byte, error) {
 	if useUpsideDownApproach {
-		return string(id), nil
+		return []byte(internalId), nil
 	}
 
 	buf := GetRowBuffer()
@@ -33,17 +42,17 @@ func (i *IndexReader) ExternalID(id index.IndexInternalID) (string, error) {
 	keyBuf := buf[:IdRowKeySize]
 
 	keyBuf[0] = 'I'
-	used := copy(keyBuf[1:], id)
+	used := copy(keyBuf[1:], internalId)
 
 	docIDBytes, err := i.kvreader.Get(keyBuf[:1+used])
 
 	PutRowBuffer(buf)
 
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return string(docIDBytes), nil
+	return docIDBytes, nil
 }
 
 func (i *IndexReader) InternalID(docID string) (index.IndexInternalID, error) {

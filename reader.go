@@ -125,7 +125,10 @@ func decodeFieldType(typ byte, name string, pos []uint64, value []byte) document
 
 func (i *IndexReader) DocumentFieldTerms(internalId index.IndexInternalID, fields []string) (
 	index.FieldTerms, error) {
-	docIDBytes := []byte(internalId) // TODO: WRONG -- need to id lookup.
+	docIDBytes, err := i.ExternalIDBytes(internalId)
+	if err != nil {
+		return nil, err
+	}
 
 	back, err := backIndexRowForDocID(i.kvreader, docIDBytes, nil)
 	if err != nil || back == nil {

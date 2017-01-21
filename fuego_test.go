@@ -1312,7 +1312,12 @@ func TestIndexDocumentFieldTerms(t *testing.T) {
 		}
 	}()
 
-	fieldTerms, err := indexReader.DocumentFieldTerms(index.IndexInternalID("1"), []string{"name", "title"})
+	internalId, err := indexReader.InternalID("1")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	fieldTerms, err := indexReader.DocumentFieldTerms(internalId, []string{"name", "title"})
 	if err != nil {
 		t.Error(err)
 	}
