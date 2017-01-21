@@ -39,14 +39,14 @@ type postings struct {
 	term        []byte
 	segPostings []*segPostings
 	field       uint16
-
-	idIter store.KVIterator // Iterator through id lookup rows.
 }
 
 type segPostings struct {
 	rowRecIds    *PostingRecIdsRow
 	rowFreqNorms *PostingFreqNormsRow
 	rowVecs      *PostingVecsRow
+
+	idIter store.KVIterator // Iterator through id lookup rows.
 
 	cur int // The current recId by 0-based position.
 }
@@ -229,9 +229,11 @@ func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.Ter
 // ---------------------------------------------
 
 func (p *postings) Close() {
-	if p.idIter != nil {
-		p.idIter.Close()
-		p.idIter = nil
+	for _, sp := range p.segPostings {
+		if sp.idIter != nil {
+			sp.idIter.Close()
+			sp.idIter = nil
+		}
 	}
 }
 

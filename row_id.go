@@ -19,6 +19,14 @@ import (
 	"fmt"
 )
 
+func IdRowKeyPrefix(segId uint64, buf []byte) int {
+	buf[0] = 'I'
+	binary.LittleEndian.PutUint64(buf[1:], segId)
+	return 9
+}
+
+var IdRowKeySize = 1 + 8 + 8
+
 type IdRow struct {
 	segId uint64
 	recId uint64
@@ -32,14 +40,13 @@ func (p *IdRow) Key() []byte {
 }
 
 func (p *IdRow) KeySize() int {
-	return 1 + 8 + 8
+	return IdRowKeySize
 }
 
 func (p *IdRow) KeyTo(buf []byte) (int, error) {
-	buf[0] = 'I'
-	binary.LittleEndian.PutUint64(buf[1:], p.segId)
-	binary.LittleEndian.PutUint64(buf[1+8:], p.recId)
-	return 1 + 8 + 8, nil
+	used := IdRowKeyPrefix(p.segId, buf)
+	binary.LittleEndian.PutUint64(buf[used:], p.recId)
+	return used + 8, nil
 }
 
 func (p *IdRow) Value() []byte {
