@@ -39,13 +39,16 @@ type postings struct {
 	term        []byte
 	segPostings []*segPostings
 	field       uint16
+
+	idIter store.KVIterator // Iterator through id lookup rows.
 }
 
 type segPostings struct {
 	rowRecIds    *PostingRecIdsRow
 	rowFreqNorms *PostingFreqNormsRow
 	rowVecs      *PostingVecsRow
-	idIter       store.KVIterator
+
+	cur int // The current recId by 0-based position.
 }
 
 // ---------------------------------------------
@@ -225,6 +228,13 @@ func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.Ter
 
 // ---------------------------------------------
 
+func (p *postings) Close() {
+	if p.idIter != nil {
+		p.idIter.Close()
+		p.idIter = nil
+	}
+}
+
 func loadPostings(kvreader store.KVReader, field uint16, term []byte) (*postings, error) {
 	buf := make([]byte, PostingRowKeySize(term))
 	bufUsed := PostingRowKeyPrefix(field, term, buf)
@@ -242,34 +252,41 @@ func loadPostings(kvreader store.KVReader, field uint16, term []byte) (*postings
 	for valid {
 		rowRecIds, err := NewPostingRecIdsRowKV(k, v)
 		if err != nil {
+			rv.Close()
 			return nil, err
 		}
 
 		it.Next()
 		k, v, valid = it.Current()
 		if !valid {
+			rv.Close()
 			return nil, fmt.Errorf("expected postingFreqNormsRow")
 		}
 
 		rowFreqNorms, err := NewPostingFreqNormsRowKV(k, v)
 		if err != nil {
+			rv.Close()
 			return nil, err
 		}
 		if rowFreqNorms.segId != rowRecIds.segId {
+			rv.Close()
 			return nil, fmt.Errorf("mismatched segId's for postingFreqNormsRow")
 		}
 
 		it.Next()
 		k, v, valid = it.Current()
 		if !valid {
+			rv.Close()
 			return nil, fmt.Errorf("expected postingVecsRow")
 		}
 
 		rowVecs, err := NewPostingVecsRowKV(k, v)
 		if err != nil {
+			rv.Close()
 			return nil, err
 		}
 		if rowVecs.segId != rowRecIds.segId {
+			rv.Close()
 			return nil, fmt.Errorf("mismatched segId's for postingVecsRow")
 		}
 

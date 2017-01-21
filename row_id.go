@@ -25,14 +25,6 @@ type IdRow struct {
 	docID []byte
 }
 
-func (p *IdRow) SegId() uint64 {
-	return p.segId
-}
-
-func (p *IdRow) RecId() uint64 {
-	return p.recId
-}
-
 func (p *IdRow) Key() []byte {
 	buf := make([]byte, p.KeySize())
 	size, _ := p.KeyTo(buf)
