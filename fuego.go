@@ -27,8 +27,6 @@ import (
 	"github.com/blevesearch/bleve/index/store"
 )
 
-var useUpsideDownApproach = false
-
 type Fuego struct {
 	version       uint8
 	path          string

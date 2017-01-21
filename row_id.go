@@ -31,10 +31,6 @@ func (i *IndexReader) ExternalID(internalId index.IndexInternalID) (string, erro
 }
 
 func (i *IndexReader) ExternalIDBytes(internalId index.IndexInternalID) ([]byte, error) {
-	if useUpsideDownApproach {
-		return []byte(internalId), nil
-	}
-
 	buf := GetRowBuffer()
 	if cap(buf) < IdRowKeySize {
 		buf = make([]byte, IdRowKeySize)
@@ -56,10 +52,6 @@ func (i *IndexReader) ExternalIDBytes(internalId index.IndexInternalID) ([]byte,
 }
 
 func (i *IndexReader) InternalID(docID string) (index.IndexInternalID, error) {
-	if useUpsideDownApproach {
-		return index.IndexInternalID(docID), nil
-	}
-
 	docIDBytes := []byte(docID)
 
 	backIndexRow, err := backIndexRowForDocID(i.kvreader, docIDBytes, nil)

@@ -119,117 +119,6 @@ func (r *TermFieldReader) Close() error {
 
 // --------------------------------------------------
 
-func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
-	if useUpsideDownApproach {
-		return r.UpsideDownNext(preAlloced)
-	}
-	return r.PostingsNext(preAlloced)
-}
-
-func (r *TermFieldReader) Advance(wantId index.IndexInternalID, preAlloced *index.TermFieldDoc) (
-	*index.TermFieldDoc, error) {
-	if useUpsideDownApproach {
-		return r.UpsideDownAdvance(wantId, preAlloced)
-	}
-	return r.PostingsAdvance(wantId, preAlloced)
-}
-
-// --------------------------------------------------
-
-func (r *TermFieldReader) UpsideDownNext(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
-	if r.iter != nil {
-		// We treat tfrNext also like an initialization flag, which
-		// tells us whether we need to invoke the underlying
-		// iter.Next().  The first time, don't call iter.Next().
-		if r.tfrNext != nil {
-			r.iter.Next()
-		} else {
-			r.tfrNext = &TermFrequencyRow{}
-		}
-
-		key, val, valid := r.iter.Current()
-		if valid {
-			tfr := r.tfrNext
-
-			err := tfr.parseKDoc(key, r.term)
-			if err != nil {
-				return nil, err
-			}
-
-			err = tfr.parseV(val, r.includeTermVectors)
-			if err != nil {
-				return nil, err
-			}
-
-			rv := preAlloced
-			if rv == nil {
-				rv = &index.TermFieldDoc{}
-			}
-
-			rv.ID = append(rv.ID, tfr.doc...)
-			rv.Freq = tfr.freq
-			rv.Norm = float64(tfr.norm)
-
-			if tfr.vectors != nil {
-				rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tfr.vectors)
-			}
-
-			return rv, nil
-		}
-	}
-
-	return nil, nil
-}
-
-func (r *TermFieldReader) UpsideDownAdvance(wantId index.IndexInternalID, preAlloced *index.TermFieldDoc) (
-	*index.TermFieldDoc, error) {
-	if r.iter != nil {
-		if r.tfrNext == nil {
-			r.tfrNext = &TermFrequencyRow{}
-		}
-
-		tfr := InitTermFrequencyRow(r.tfrNext, r.term, r.field, wantId, 0, 0)
-		keyBuf, err := tfr.KeyAppendTo(r.keyBuf[:0])
-		if err != nil {
-			return nil, err
-		}
-
-		r.iter.Seek(keyBuf)
-
-		key, val, valid := r.iter.Current()
-		if valid {
-			err := tfr.parseKDoc(key, r.term)
-			if err != nil {
-				return nil, err
-			}
-
-			err = tfr.parseV(val, r.includeTermVectors)
-			if err != nil {
-				return nil, err
-			}
-
-			rv := preAlloced
-			if rv == nil {
-				rv = &index.TermFieldDoc{}
-			}
-
-			rv.ID = append(rv.ID, tfr.doc...)
-			rv.Freq = tfr.freq
-			rv.Norm = float64(tfr.norm)
-
-			if tfr.vectors != nil {
-				rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tfr.vectors)
-			}
-
-			return rv, nil
-		}
-	}
-
-	return nil, nil
-}
-
-// --------------------------------------------------
-
 func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.TermFieldVector {
 	if len(in) <= 0 {
 		return nil
@@ -340,7 +229,7 @@ func loadSegPostingsArr(kvreader store.KVReader, field uint16, term []byte) ([]*
 
 // --------------------------------------------------
 
-func (r *TermFieldReader) PostingsNext(preAlloced *index.TermFieldDoc) (
+func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (
 	*index.TermFieldDoc, error) {
 LOOP_SEG:
 	for len(r.segPostingsArr) > 0 {
@@ -390,7 +279,7 @@ LOOP_SEG:
 	return nil, nil
 }
 
-func (r *TermFieldReader) PostingsAdvance(wantId index.IndexInternalID,
+func (r *TermFieldReader) Advance(wantId index.IndexInternalID,
 	preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
 	wantSegId := binary.LittleEndian.Uint64(wantId[:8])
 	wantRecId := binary.LittleEndian.Uint64(wantId[8:])

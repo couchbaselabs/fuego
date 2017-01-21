@@ -16,7 +16,6 @@ package fuego
 
 import (
 	"bytes"
-	"sort"
 
 	"github.com/blevesearch/bleve/index/store"
 )
@@ -129,43 +128,6 @@ func (i *IndexReader) DumpDoc(id string) chan interface{} {
 		// first add all the stored rows
 		storedRowPrefix := NewStoredRow(idBytes, 0, []uint64{}, 'x', []byte{}).ScanPrefixForDoc()
 		dumpPrefix(i.kvreader, rv, storedRowPrefix)
-
-		if useUpsideDownApproach {
-			// TODO: This goes away once fuego is real...
-			//
-			// build sorted list of term keys
-			keys := make(keyset, 0)
-			for _, entry := range back.termEntries {
-				tfr := NewTermFrequencyRow([]byte(*entry.Term), uint16(*entry.Field), idBytes, 0, 0)
-				key := tfr.Key()
-				keys = append(keys, key)
-			}
-			sort.Sort(keys)
-
-			// now walk term keys in order and add them as well
-			if len(keys) > 0 {
-				it := i.kvreader.RangeIterator(keys[0], nil)
-				defer it.Close()
-
-				for _, key := range keys {
-					it.Seek(key)
-					rkey, rval, valid := it.Current()
-					if !valid {
-						break
-					}
-					rck := make([]byte, len(rkey))
-					copy(rck, key)
-					rcv := make([]byte, len(rval))
-					copy(rcv, rval)
-					row, err := ParseFromKeyValue(rck, rcv)
-					if err != nil {
-						rv <- err
-						return
-					}
-					rv <- row
-				}
-			}
-		}
 	}()
 
 	return rv
