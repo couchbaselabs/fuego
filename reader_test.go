@@ -58,8 +58,10 @@ func TestIndexReader(t *testing.T) {
 	expectedCount++
 
 	doc = document.NewDocument("2")
-	doc.AddField(document.NewTextFieldWithAnalyzer("name", []uint64{}, []byte("test test test"), testAnalyzer))
-	doc.AddField(document.NewTextFieldCustom("desc", []uint64{}, []byte("eat more rice"), document.IndexField|document.IncludeTermVectors, testAnalyzer))
+	doc.AddField(document.NewTextFieldWithAnalyzer("name", []uint64{},
+		[]byte("test test test"), testAnalyzer))
+	doc.AddField(document.NewTextFieldCustom("desc", []uint64{},
+		[]byte("eat more rice"), document.IndexField|document.IncludeTermVectors, testAnalyzer))
 	err = idx.Update(doc)
 	if err != nil {
 		t.Errorf("Error updating index: %v", err)
@@ -108,7 +110,7 @@ func TestIndexReader(t *testing.T) {
 	for err == nil && match != nil {
 		match, err = reader.Next(nil)
 		if err != nil {
-			t.Errorf("unexpected error reading next")
+			t.Errorf("unexpected error reading next, err: %v", err)
 		}
 		actualCount++
 	}
@@ -116,8 +118,13 @@ func TestIndexReader(t *testing.T) {
 		t.Errorf("count was 2, but only saw %d", actualCount)
 	}
 
+	internalId, err := indexReader.InternalID("2")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
 	expectedMatch := &index.TermFieldDoc{
-		ID:   index.IndexInternalID("2"),
+		ID:   internalId,
 		Freq: 1,
 		Norm: 0.5773502588272095,
 		Vectors: []*index.TermFieldVector{
@@ -138,7 +145,7 @@ func TestIndexReader(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if !reflect.DeepEqual(expectedMatch, match) {
-		t.Errorf("got %#v, expected %#v", match, expectedMatch)
+		t.Errorf("got %#v, %#v, expected %#v, %#v", match, match.Vectors[0], expectedMatch, expectedMatch.Vectors[0])
 	}
 	err = reader.Close()
 	if err != nil {
@@ -146,27 +153,35 @@ func TestIndexReader(t *testing.T) {
 	}
 
 	// now test usage of advance
+	internalId, err = indexReader.InternalID("1")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
 	reader, err = indexReader.TermFieldReader([]byte("test"), "name", true, true, true)
 	if err != nil {
 		t.Errorf("Error accessing term field reader: %v", err)
 	}
 
-	match, err = reader.Advance(index.IndexInternalID("2"), nil)
+	match, err = reader.Advance(internalId, nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if match == nil {
 		t.Fatalf("Expected match, got nil")
 	}
-	if !match.ID.Equals(index.IndexInternalID("2")) {
-		t.Errorf("Expected ID '2', got '%s'", match.ID)
+	if !match.ID.Equals(internalId) {
+		t.Errorf("Expected ID '1', got '%s'", match.ID)
 	}
-	match, err = reader.Advance(index.IndexInternalID("3"), nil)
+
+	fwdInternalId := incrementBytes(incrementBytes(append([]byte(nil), internalId...)))
+
+	match, err = reader.Advance(fwdInternalId, nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if match != nil {
-		t.Errorf("expected nil, got %v", match)
+		t.Fatalf("expected nil, got %#v", match)
 	}
 	err = reader.Close()
 	if err != nil {
@@ -189,7 +204,7 @@ func TestIndexReader(t *testing.T) {
 	if match != nil {
 		t.Errorf("expected nil, got %v", match)
 	}
-	match, err = reader.Advance(index.IndexInternalID("anywhere"), nil)
+	match, err = reader.Advance(internalId, nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

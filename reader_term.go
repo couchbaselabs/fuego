@@ -102,13 +102,36 @@ func (r *TermFieldReader) Count() uint64 {
 	return r.count
 }
 
+func (r *TermFieldReader) Close() error {
+	if r.indexReader != nil {
+		atomic.AddUint64(&r.indexReader.index.stats.termSearchersFinished, uint64(1))
+	}
+
+	if r.iter != nil {
+		r.iter.Close()
+		r.iter = nil
+	}
+
+	closeSegPostingsArr(r.segPostingsArr)
+
+	return nil
+}
+
+// --------------------------------------------------
+
 func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
-	return r.UpsideDownNext(preAlloced)
+	if useUpsideDownApproach {
+		return r.UpsideDownNext(preAlloced)
+	}
+	return r.PostingsNext(preAlloced)
 }
 
 func (r *TermFieldReader) Advance(wantId index.IndexInternalID, preAlloced *index.TermFieldDoc) (
 	*index.TermFieldDoc, error) {
-	return r.UpsideDownAdvance(wantId, preAlloced)
+	if useUpsideDownApproach {
+		return r.UpsideDownAdvance(wantId, preAlloced)
+	}
+	return r.PostingsAdvance(wantId, preAlloced)
 }
 
 // --------------------------------------------------
@@ -205,20 +228,7 @@ func (r *TermFieldReader) UpsideDownAdvance(wantId index.IndexInternalID, preAll
 	return nil, nil
 }
 
-func (r *TermFieldReader) Close() error {
-	if r.indexReader != nil {
-		atomic.AddUint64(&r.indexReader.index.stats.termSearchersFinished, uint64(1))
-	}
-
-	if r.iter != nil {
-		r.iter.Close()
-		r.iter = nil
-	}
-
-	closeSegPostingsArr(r.segPostingsArr)
-
-	return nil
-}
+// --------------------------------------------------
 
 func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.TermFieldVector {
 	if len(in) <= 0 {
@@ -340,9 +350,7 @@ LOOP_SEG:
 		for true {
 			idRowKey, _, valid := sp.idIter.Current()
 			if !valid {
-				r.segPostingsArr = r.segPostingsArr[1:]
-				sp.idIter.Close()
-				sp.idIter = nil
+				r.nextSegPostings(sp)
 				continue LOOP_SEG
 			}
 
@@ -355,9 +363,7 @@ LOOP_SEG:
 		LOOP_REC:
 			for true {
 				if sp.nextRecIdx >= len(sp.rowRecIds.recIds) {
-					r.segPostingsArr = r.segPostingsArr[1:]
-					sp.idIter.Close()
-					sp.idIter = nil
+					r.nextSegPostings(sp)
 					continue LOOP_SEG
 				}
 
@@ -367,47 +373,16 @@ LOOP_SEG:
 				recId := sp.rowRecIds.recIds[recIdx]
 
 				if idRow.recId < recId {
-					idRow.segId = sp.rowRecIds.segId
-					idRow.recId = recId
-					if cap(r.keyBuf) < IdRowKeySize {
-						r.keyBuf = make([]byte, IdRowKeySize)
-					}
-					keyBuf := r.keyBuf[0:IdRowKeySize]
-					keyBufUsed, _ := idRow.KeyTo(keyBuf)
-					sp.idIter.Seek(keyBuf[:keyBufUsed])
+					r.seekIdIter(sp, recId)
 					continue LOOP_IDITER
 				}
 
 				if idRow.recId > recId {
-					continue LOOP_REC // The idRow was deleted.
+					continue LOOP_REC // The rec was deleted.
 				}
 
-				// The idRow.recId == recId, so found a result.
-				//
-				rv := preAlloced
-				if rv == nil {
-					rv = &index.TermFieldDoc{}
-				}
-
-				// Strip off idRow 1-byte prefix.
-				rv.ID = append(rv.ID, idRowKey[1:]...)
-
-				if r.includeFreq {
-					rv.Freq = uint64(sp.rowFreqNorms.Freq(recIdx))
-				}
-
-				if r.includeNorm {
-					rv.Norm = float64(sp.rowFreqNorms.Norm(recIdx))
-				}
-
-				if r.includeTermVectors {
-					tvs, err := sp.rowVecs.TermVectors(recIdx, nil)
-					if err != nil {
-						return nil, err
-					}
-
-					rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tvs)
-				}
+				// The idRow.recId == recId, so found a rec.
+				return r.prepareResultRec(sp, idRowKey, recIdx, preAlloced)
 			}
 		}
 	}
@@ -418,15 +393,13 @@ LOOP_SEG:
 func (r *TermFieldReader) PostingsAdvance(wantId index.IndexInternalID,
 	preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
 	wantSegId := binary.LittleEndian.Uint64(wantId[:8])
-	wantRecId := binary.LittleEndian.Uint64(wantId[8:8+8])
+	wantRecId := binary.LittleEndian.Uint64(wantId[8:])
 
 LOOP_SEG:
 	for len(r.segPostingsArr) > 0 {
 		sp := r.segPostingsArr[0]
 		if sp.rowRecIds.segId < wantSegId {
-			r.segPostingsArr = r.segPostingsArr[1:]
-			sp.idIter.Close()
-			sp.idIter = nil
+			r.nextSegPostings(sp)
 			continue LOOP_SEG
 		}
 
@@ -434,9 +407,7 @@ LOOP_SEG:
 		for true {
 			idRowKey, _, valid := sp.idIter.Current()
 			if !valid {
-				r.segPostingsArr = r.segPostingsArr[1:]
-				sp.idIter.Close()
-				sp.idIter = nil
+				r.nextSegPostings(sp)
 				continue LOOP_SEG
 			}
 
@@ -446,24 +417,15 @@ LOOP_SEG:
 				return nil, err
 			}
 
-			if idRow.segId == wantSegId &&
-				idRow.recId < wantRecId {
-				idRow.recId = wantRecId
-				if cap(r.keyBuf) < IdRowKeySize {
-					r.keyBuf = make([]byte, IdRowKeySize)
-				}
-				keyBuf := r.keyBuf[0:IdRowKeySize]
-				keyBufUsed, _ := idRow.KeyTo(keyBuf)
-				sp.idIter.Seek(keyBuf[:keyBufUsed])
+			if idRow.segId == wantSegId && idRow.recId < wantRecId {
+				r.seekIdIter(sp, wantRecId)
 				continue LOOP_IDITER
 			}
 
 		LOOP_REC:
 			for true {
 				if sp.nextRecIdx >= len(sp.rowRecIds.recIds) {
-					r.segPostingsArr = r.segPostingsArr[1:]
-					sp.idIter.Close()
-					sp.idIter = nil
+					r.nextSegPostings(sp)
 					continue LOOP_SEG
 				}
 
@@ -473,50 +435,70 @@ LOOP_SEG:
 				recId := sp.rowRecIds.recIds[recIdx]
 
 				if idRow.recId < recId {
-					idRow.segId = sp.rowRecIds.segId
-					idRow.recId = recId
-					if cap(r.keyBuf) < IdRowKeySize {
-						r.keyBuf = make([]byte, IdRowKeySize)
-					}
-					keyBuf := r.keyBuf[0:IdRowKeySize]
-					keyBufUsed, _ := idRow.KeyTo(keyBuf)
-					sp.idIter.Seek(keyBuf[:keyBufUsed])
+					r.seekIdIter(sp, recId)
 					continue LOOP_IDITER
 				}
 
 				if idRow.recId > recId {
-					continue LOOP_REC // The idRow was deleted.
+					continue LOOP_REC // The rec was deleted.
 				}
 
-				// The idRow.recId == recId, so found a result.
-				//
-				rv := preAlloced
-				if rv == nil {
-					rv = &index.TermFieldDoc{}
-				}
-
-				// Strip off idRow 1-byte prefix.
-				rv.ID = append(rv.ID, idRowKey[1:]...)
-
-				if r.includeFreq {
-					rv.Freq = uint64(sp.rowFreqNorms.Freq(recIdx))
-				}
-
-				if r.includeNorm {
-					rv.Norm = float64(sp.rowFreqNorms.Norm(recIdx))
-				}
-
-				if r.includeTermVectors {
-					tvs, err := sp.rowVecs.TermVectors(recIdx, nil)
-					if err != nil {
-						return nil, err
-					}
-
-					rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tvs)
-				}
+				// The idRow.recId == recId, so found a rec.
+				return r.prepareResultRec(sp, idRowKey, recIdx, preAlloced)
 			}
 		}
 	}
 
 	return nil, nil
+}
+
+func (r *TermFieldReader) nextSegPostings(sp *segPostings) {
+	r.segPostingsArr = r.segPostingsArr[1:]
+
+	sp.idIter.Close()
+	sp.idIter = nil
+}
+
+func (r *TermFieldReader) seekIdIter(sp *segPostings, recId uint64) {
+	idRow := &r.tmpIdRow
+	idRow.segId = sp.rowRecIds.segId
+	idRow.recId = recId
+
+	if cap(r.keyBuf) < IdRowKeySize {
+		r.keyBuf = make([]byte, IdRowKeySize)
+	}
+	keyBuf := r.keyBuf[:IdRowKeySize]
+	keyBufUsed, _ := idRow.KeyTo(keyBuf)
+
+	sp.idIter.Seek(keyBuf[:keyBufUsed])
+}
+
+func (r *TermFieldReader) prepareResultRec(sp *segPostings,
+	idRowKey []byte, recIdx int, preAlloced *index.TermFieldDoc) (
+	*index.TermFieldDoc, error) {
+	rv := preAlloced
+	if rv == nil {
+		rv = &index.TermFieldDoc{}
+	}
+
+	rv.ID = append(rv.ID[:0], idRowKey[1:]...) // Strip off 1-byte prefix.
+
+	if r.includeFreq {
+		rv.Freq = uint64(sp.rowFreqNorms.Freq(recIdx))
+	}
+
+	if r.includeNorm {
+		rv.Norm = float64(sp.rowFreqNorms.Norm(recIdx))
+	}
+
+	if r.includeTermVectors {
+		tvs, err := sp.rowVecs.TermVectors(recIdx, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tvs)
+	}
+
+	return rv, nil
 }

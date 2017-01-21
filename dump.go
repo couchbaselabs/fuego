@@ -115,7 +115,7 @@ func (i *IndexReader) DumpDoc(id string) chan interface{} {
 	go func() {
 		defer close(rv)
 
-		back, err := backIndexRowForDoc(i.kvreader, []byte(id))
+		back, err := backIndexRowForDocID(i.kvreader, []byte(id), nil)
 		if err != nil {
 			rv <- err
 			return

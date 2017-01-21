@@ -17,7 +17,56 @@ package fuego
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/blevesearch/bleve/index"
 )
+
+func (i *IndexReader) ExternalID(id index.IndexInternalID) (string, error) {
+	if useUpsideDownApproach {
+		return string(id), nil
+	}
+
+	buf := GetRowBuffer()
+	if cap(buf) < IdRowKeySize {
+		buf = make([]byte, IdRowKeySize)
+	}
+	keyBuf := buf[:IdRowKeySize]
+
+	keyBuf[0] = 'I'
+	used := copy(keyBuf[1:], id)
+
+	docIDBytes, err := i.kvreader.Get(keyBuf[:1+used])
+
+	PutRowBuffer(buf)
+
+	if err != nil {
+		return "", err
+	}
+
+	return string(docIDBytes), nil
+}
+
+func (i *IndexReader) InternalID(docID string) (index.IndexInternalID, error) {
+	if useUpsideDownApproach {
+		return index.IndexInternalID(docID), nil
+	}
+
+	docIDBytes := []byte(docID)
+
+	backIndexRow, err := backIndexRowForDocID(i.kvreader, docIDBytes, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	rv := make([]byte, 16)
+
+	binary.LittleEndian.PutUint64(rv[:8], backIndexRow.segId)
+	binary.LittleEndian.PutUint64(rv[8:], backIndexRow.recId)
+
+	return index.IndexInternalID(rv), nil
+}
+
+// ------------------------------------------------------
 
 func IdRowKeyPrefix(segId uint64, buf []byte) int {
 	buf[0] = 'I'
@@ -26,6 +75,8 @@ func IdRowKeyPrefix(segId uint64, buf []byte) int {
 }
 
 var IdRowKeySize = 1 + 8 + 8
+
+// ------------------------------------------------------
 
 type IdRow struct {
 	segId uint64

@@ -163,7 +163,6 @@ func NewPostingVecsRow(field uint16, term []byte, segId uint64, encoded []uint32
 func NewPostingVecsRowFromVectors(field uint16, term []byte, segId uint64,
 	vectors [][]*TermVector) *PostingVecsRow {
 	numRecs := len(vectors)
-
 	numVecs := 0
 	numArrayPositions := 0
 	for _, recTermVectors := range vectors {
@@ -200,8 +199,8 @@ func NewPostingVecsRowFromVectors(field uint16, term []byte, segId uint64,
 			vecOffsets[j] = uint32(vecPartsUsed)
 
 			fieldAndLength :=
-				(0xffff0000 & uint32(termVector.field<<16)) &
-					(0x0000ffff & uint32(termVector.end-termVector.start))
+				(uint32(0xffff0000) & (uint32(termVector.field) << 16)) |
+					(uint32(0x0000ffff) & uint32(termVector.end-termVector.start))
 			vecParts[vecPartsUsed] = fieldAndLength
 			vecPartsUsed++
 

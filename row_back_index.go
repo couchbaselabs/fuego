@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/blevesearch/bleve/index"
 	"github.com/blevesearch/bleve/index/store"
 
 	"github.com/golang/protobuf/proto"
@@ -162,19 +161,20 @@ func NewBackIndexRowKV(key, value []byte) (*BackIndexRow, error) {
 	return &rv, nil
 }
 
-func backIndexRowForDoc(kvreader store.KVReader, docID index.IndexInternalID) (*BackIndexRow, error) {
-	// use a temporary row structure to build key
-	tempRow := &BackIndexRow{
-		docID: docID,
+func backIndexRowForDocID(kvreader store.KVReader, docIDBytes []byte,
+	tmpRow *BackIndexRow) (*BackIndexRow, error) {
+	if tmpRow == nil {
+		tmpRow = &BackIndexRow{}
 	}
+	tmpRow.docID = docIDBytes
 
 	keyBuf := GetRowBuffer()
-	if tempRow.KeySize() > len(keyBuf) {
-		keyBuf = make([]byte, 2*tempRow.KeySize())
+	if tmpRow.KeySize() > len(keyBuf) {
+		keyBuf = make([]byte, 2*tmpRow.KeySize())
 	}
 	defer PutRowBuffer(keyBuf)
 
-	keySize, err := tempRow.KeyTo(keyBuf)
+	keySize, err := tmpRow.KeyTo(keyBuf)
 	if err != nil {
 		return nil, err
 	}

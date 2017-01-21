@@ -61,22 +61,22 @@ func (i *IndexReader) DocIDReaderAll() (index.DocIDReader, error) {
 	return newDocIDReader(i)
 }
 
-func (i *IndexReader) DocIDReaderOnly(ids []string) (index.DocIDReader, error) {
-	return newDocIDReaderOnly(i, ids)
+func (i *IndexReader) DocIDReaderOnly(docIDs []string) (index.DocIDReader, error) {
+	return newDocIDReaderOnly(i, docIDs)
 }
 
-func (i *IndexReader) Document(id string) (*document.Document, error) {
-	idBytes := []byte(id)
+func (i *IndexReader) Document(docID string) (*document.Document, error) {
+	docIDBytes := []byte(docID)
 
 	// first hit the back index to confirm doc exists
-	backIndexRow, err := backIndexRowForDoc(i.kvreader, idBytes)
+	backIndexRow, err := backIndexRowForDocID(i.kvreader, docIDBytes, nil)
 	if err != nil || backIndexRow == nil {
 		return nil, err
 	}
 
-	doc := document.NewDocument(id)
+	doc := document.NewDocument(docID)
 
-	storedRow := NewStoredRow(idBytes, 0, []uint64{}, 'x', nil)
+	storedRow := NewStoredRow(docIDBytes, 0, nil, 'x', nil)
 	storedRowScanPrefix := storedRow.ScanPrefixForDoc()
 
 	it := i.kvreader.PrefixIterator(storedRowScanPrefix)
@@ -123,9 +123,11 @@ func decodeFieldType(typ byte, name string, pos []uint64, value []byte) document
 	return nil
 }
 
-func (i *IndexReader) DocumentFieldTerms(id index.IndexInternalID, fields []string) (
+func (i *IndexReader) DocumentFieldTerms(internalId index.IndexInternalID, fields []string) (
 	index.FieldTerms, error) {
-	back, err := backIndexRowForDoc(i.kvreader, id)
+	docIDBytes := []byte(internalId) // TODO: WRONG -- need to id lookup.
+
+	back, err := backIndexRowForDocID(i.kvreader, docIDBytes, nil)
 	if err != nil || back == nil {
 		return nil, err
 	}
@@ -192,14 +194,6 @@ func (i *IndexReader) DocCount() (uint64, error) {
 
 func (i *IndexReader) Close() error {
 	return i.kvreader.Close()
-}
-
-func (i *IndexReader) ExternalID(id index.IndexInternalID) (string, error) {
-	return string(id), nil
-}
-
-func (i *IndexReader) InternalID(id string) (index.IndexInternalID, error) {
-	return index.IndexInternalID(id), nil
 }
 
 func incrementBytes(in []byte) []byte {

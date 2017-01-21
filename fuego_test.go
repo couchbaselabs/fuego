@@ -1247,6 +1247,11 @@ func TestIndexTermReaderCompositeFields(t *testing.T) {
 		}
 	}()
 
+	internalId, err := indexReader.InternalID("1")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
 	termFieldReader, err := indexReader.TermFieldReader([]byte("mister"), "_all", true, true, true)
 	if err != nil {
 		t.Error(err)
@@ -1254,7 +1259,7 @@ func TestIndexTermReaderCompositeFields(t *testing.T) {
 
 	tfd, err := termFieldReader.Next(nil)
 	for tfd != nil && err == nil {
-		if !tfd.ID.Equals(index.IndexInternalID("1")) {
+		if !tfd.ID.Equals(internalId) {
 			t.Errorf("expected to find document id 1")
 		}
 		tfd, err = termFieldReader.Next(nil)

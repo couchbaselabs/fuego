@@ -27,6 +27,8 @@ import (
 	"github.com/blevesearch/bleve/index/store"
 )
 
+var useUpsideDownApproach = false
+
 type Fuego struct {
 	version       uint8
 	path          string
@@ -65,13 +67,16 @@ func (udc *Fuego) Reader() (index.IndexReader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error opening store reader: %v", err)
 	}
+
 	udc.m.RLock()
-	defer udc.m.RUnlock()
-	return &IndexReader{
+	rv := &IndexReader{
 		index:    udc,
 		kvreader: kvr,
 		docCount: udc.docCount,
-	}, nil
+	}
+	udc.m.RUnlock()
+
+	return rv, nil
 }
 
 func (udc *Fuego) Stats() json.Marshaler {
@@ -98,24 +103,18 @@ func (udc *Fuego) Delete(id string) error {
 	return udc.Batch(b)
 }
 
-func (udc *Fuego) rowCount() (count uint64, err error) {
+func (udc *Fuego) rowCount() (uint64, error) {
 	// start an isolated reader for use during the row count
 	kvreader, err := udc.store.Reader()
 	if err != nil {
-		return
+		return 0, err
 	}
-	defer func() {
-		if cerr := kvreader.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}()
+	defer kvreader.Close()
 
 	it := kvreader.RangeIterator(nil, nil)
-	defer func() {
-		if cerr := it.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}()
+	defer it.Close()
+
+	var count uint64
 
 	_, _, valid := it.Current()
 	for valid {
@@ -124,5 +123,5 @@ func (udc *Fuego) rowCount() (count uint64, err error) {
 		_, _, valid = it.Current()
 	}
 
-	return
+	return count, nil
 }

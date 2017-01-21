@@ -82,10 +82,9 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		for _, doc := range batch.IndexOps {
 			if doc != nil {
 				AnalyzeAuxQueue <- &AnalyzeAuxReq{
-					Index:         udc,
-					Doc:           doc,
-					WantBackIndex: true,
-					ResultCh:      analyzeResultCh,
+					Index:    udc,
+					Doc:      doc,
+					ResultCh: analyzeResultCh,
 				}
 			}
 		}
@@ -107,10 +106,12 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 		}
 		defer kvreader.Close()
 
+		var tempBackIndexRow BackIndexRow
+
 		for docID, doc := range batch.IndexOps {
 			docIDBytes := []byte(docID)
 
-			backIndexRow, err := backIndexRowForDoc(kvreader, docIDBytes)
+			backIndexRow, err := backIndexRowForDocID(kvreader, docIDBytes, &tempBackIndexRow)
 			if err != nil {
 				docBackIndexRowErr = err
 				return
