@@ -349,11 +349,13 @@ func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow,
 	deleteRows := make([]KVRow, 0, len(backIndexRow.termEntries)+len(backIndexRow.storedEntries)+2)
 
 	for _, te := range backIndexRow.termEntries {
-		// TODO: Once fuego is ready, no longer need to delete the TermFreqRows,
-		// since TermFreqRows will no longer be persisted.
-
+		// TODO: Once fuego is fully ready, no longer need to
+		// allocate a new TermFreqRow in every loop iteration.
 		tfr := NewTermFrequencyRow([]byte(*te.Term), uint16(*te.Field), idBytes, 0, 0)
-		deleteRows = append(deleteRows, tfr)
+
+		if useUpsideDownApproach {
+			deleteRows = append(deleteRows, tfr)
+		}
 
 		if tfr.DictionaryRowKeySize() > len(keyBuf) {
 			keyBuf = make([]byte, tfr.DictionaryRowKeySize())
@@ -497,8 +499,6 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 	backIndexRow *BackIndexRow, batchEntry *batchEntry,
 	dictionaryDeltas map[string]int64, keyBuf []byte) (
 	addRows []KVRow, updateRows []KVRow, deleteRows []KVRow, keyBufOut []byte) {
-	// TODO: Once fuego is ready, no longer need to persist the TermFreqRows.
-
 	ar := batchEntry.analyzeResult
 
 	ar.BackIndexRow.segId = segId
@@ -517,7 +517,9 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 		}
 
 		for _, row := range ar.TermFreqRows {
-			addRows = append(addRows, row)
+			if useUpsideDownApproach {
+				addRows = append(addRows, row)
+			}
 
 			if row.DictionaryRowKeySize() > len(keyBuf) {
 				keyBuf = make([]byte, row.DictionaryRowKeySize())
@@ -565,16 +567,20 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 			if row.KeySize() > len(keyBuf) {
 				keyBuf = make([]byte, row.KeySize())
 			}
-
 			keySize, _ := row.KeyTo(keyBuf)
 			if _, ok := existingTermKeys[string(keyBuf[:keySize])]; ok {
-				updateRows = append(updateRows, row)
+				if useUpsideDownApproach {
+					updateRows = append(updateRows, row)
+				}
+
 				delete(existingTermKeys, string(keyBuf[:keySize]))
 				continue
 			}
 		}
 
-		addRows = append(addRows, row)
+		if useUpsideDownApproach {
+			addRows = append(addRows, row)
+		}
 
 		if row.DictionaryRowKeySize() > len(keyBuf) {
 			keyBuf = make([]byte, row.DictionaryRowKeySize())
@@ -590,7 +596,6 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 			if row.KeySize() > len(keyBuf) {
 				keyBuf = make([]byte, row.KeySize())
 			}
-
 			keySize, _ := row.KeyTo(keyBuf)
 			if _, ok := existingStoredKeys[string(keyBuf[:keySize])]; ok {
 				updateRows = append(updateRows, row)
@@ -609,7 +614,9 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 	for existingTermKey := range existingTermKeys {
 		tfr, err := NewTermFrequencyRowK([]byte(existingTermKey))
 		if err == nil {
-			deleteRows = append(deleteRows, tfr)
+			if useUpsideDownApproach {
+				deleteRows = append(deleteRows, tfr)
+			}
 
 			if tfr.DictionaryRowKeySize() > len(keyBuf) {
 				keyBuf = make([]byte, tfr.DictionaryRowKeySize())

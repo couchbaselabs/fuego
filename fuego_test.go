@@ -169,8 +169,8 @@ func TestIndexInsert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for single term, 1 for the term count, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows
-	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 1 + 3)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the term count, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows
+	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 3)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -339,8 +339,8 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Errorf("Error updating index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the termFreqRow, 1 for the term counts, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows)
-	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 1 + 3)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the term counts, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows)
+	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 3)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -357,8 +357,8 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Errorf("Error deleting entry from index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 2 for the two termFreqRows, 2 for the term counts, 1 for the back index entry, 1 for id row, 3 + 3*2 for posting recId/freqNorm/vec rows)
-	expectedLength = uint64(1 + 1 + 1 + 2 + 2 + 1 + 1 + 9)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 2 for the term counts, 1 for the back index entry, 1 for id row, 3 + 3*2 for posting recId/freqNorm/vec rows)
+	expectedLength = uint64(1 + 1 + 1 + 2 + 1 + 1 + 9)
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -375,8 +375,8 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Errorf("Error deleting entry from index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the remaining termFreqRow, 2 for the term dictionary, 1 for the back index entry, 1 for id row, 3+3*2+3 for posting recId/freqNorm/vec rows)
-	expectedLength = uint64(1 + 1 + 1 + 1 + 2 + 1 + 1 + 12)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field,  2 for the term dictionary, 1 for the back index entry, 1 for id row, 3+3*2+3 for posting recId/freqNorm/vec rows)
+	expectedLength = uint64(1 + 1 + 1 + 2 + 1 + 1 + 12)
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -422,8 +422,8 @@ func TestIndexInsertMultiple(t *testing.T) {
 	}
 	expectedCount++
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 2 for single term, 1 for the term count, 2 for the back index entries, 2 for id rows, 3*2 for posting recId/freqNorm/vec rows)
-	expectedLength := uint64(1 + 1 + 1 + 2 + 1 + 2 + 2 + 6)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the term count, 2 for the back index entries, 2 for id rows, 3*2 for posting recId/freqNorm/vec rows)
+	expectedLength := uint64(1 + 1 + 1 + 1 + 2 + 2 + 6)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -543,8 +543,8 @@ func TestIndexInsertWithStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for single term, 1 for the stored field, 1 for the term count, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows)
-	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 3)
+	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the stored field, 1 for the term count, 1 for back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows)
+	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 1 + 3)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -850,9 +850,6 @@ func TestIndexInsertUpdateDeleteWithMultipleTypesStored(t *testing.T) {
 	// 1 for version
 	// 1 for summaryRow
 	// 3 for schema fields
-	// 1 for text term
-	// 16 for numeric terms
-	// 16 for date terms
 	// 3 for the stored field
 	// 1 for the text term count
 	// 16 for numeric term counts
@@ -860,7 +857,7 @@ func TestIndexInsertUpdateDeleteWithMultipleTypesStored(t *testing.T) {
 	// 1 for the back index entry
 	// 1 for id row
 	// 3 + 3*16 + 3*16 for posting recId/freqNorm/vec rows
-	expectedLength := uint64(1 + 1 + 3 + 1 + (64 / document.DefaultPrecisionStep) + (64 / document.DefaultPrecisionStep) + 3 + 1 + (64 / document.DefaultPrecisionStep) + (64 / document.DefaultPrecisionStep) + 1 + 1 + 3 + 3*16 + 3*16)
+	expectedLength := uint64(1 + 1 + 3 + 3 + 1 + (64 / document.DefaultPrecisionStep) + (64 / document.DefaultPrecisionStep) + 1 + 1 + 3 + 3*16 + 3*16)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -1093,13 +1090,12 @@ func TestIndexUpdateComposites(t *testing.T) {
 	// 1 for version
 	// 1 for summaryRow
 	// 3 for schema fields
-	// 4 for text term
 	// 2 for the stored field
 	// 4 for the text term count
 	// 1 for the back index entry
 	// 1 for id row
 	// 3*2 + 3*2 for posting recId/freqNorm/vec rows
-	expectedLength := uint64(1 + 1 + 3 + 4 + 2 + 4 + 1 + 1 + 12)
+	expectedLength := uint64(1 + 1 + 3 + 2 + 4 + 1 + 1 + 12)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -1145,7 +1141,7 @@ func TestIndexUpdateComposites(t *testing.T) {
 		t.Errorf("expected field content 'test', got '%s'", string(textField.Value()))
 	}
 
-	// should have the same row count as before, plus 4 term dictionary garbage rows, 3*2 + 3*2 for posting recId/freqNorm/vec rows.
+	// should have the same row count as before, plus 4 additional term dictionary rows, 3*2 + 3*2 for posting recId/freqNorm/vec rows.
 	expectedLength += 4 + 12
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {

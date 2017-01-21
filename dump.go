@@ -115,7 +115,7 @@ func (i *IndexReader) DumpDoc(id string) chan interface{} {
 	go func() {
 		defer close(rv)
 
-		back, err := backIndexRowForDocID(i.kvreader, []byte(id), nil)
+		back, err := backIndexRowForDocID(i.kvreader, idBytes, nil)
 		if err != nil {
 			rv <- err
 			return
@@ -125,45 +125,45 @@ func (i *IndexReader) DumpDoc(id string) chan interface{} {
 		if back == nil {
 			return
 		}
-		// build sorted list of term keys
-		keys := make(keyset, 0)
-		for _, entry := range back.termEntries {
-			tfr := NewTermFrequencyRow([]byte(*entry.Term), uint16(*entry.Field), idBytes, 0, 0)
-			key := tfr.Key()
-			keys = append(keys, key)
-		}
-		sort.Sort(keys)
 
 		// first add all the stored rows
 		storedRowPrefix := NewStoredRow(idBytes, 0, []uint64{}, 'x', []byte{}).ScanPrefixForDoc()
 		dumpPrefix(i.kvreader, rv, storedRowPrefix)
 
-		// now walk term keys in order and add them as well
-		if len(keys) > 0 {
-			it := i.kvreader.RangeIterator(keys[0], nil)
-			defer func() {
-				cerr := it.Close()
-				if cerr != nil {
-					rv <- cerr
-				}
-			}()
+		if useUpsideDownApproach {
+			// TODO: This goes away once fuego is real...
+			//
+			// build sorted list of term keys
+			keys := make(keyset, 0)
+			for _, entry := range back.termEntries {
+				tfr := NewTermFrequencyRow([]byte(*entry.Term), uint16(*entry.Field), idBytes, 0, 0)
+				key := tfr.Key()
+				keys = append(keys, key)
+			}
+			sort.Sort(keys)
 
-			for _, key := range keys {
-				it.Seek(key)
-				rkey, rval, valid := it.Current()
-				if !valid {
-					break
+			// now walk term keys in order and add them as well
+			if len(keys) > 0 {
+				it := i.kvreader.RangeIterator(keys[0], nil)
+				defer it.Close()
+
+				for _, key := range keys {
+					it.Seek(key)
+					rkey, rval, valid := it.Current()
+					if !valid {
+						break
+					}
+					rck := make([]byte, len(rkey))
+					copy(rck, key)
+					rcv := make([]byte, len(rval))
+					copy(rcv, rval)
+					row, err := ParseFromKeyValue(rck, rcv)
+					if err != nil {
+						rv <- err
+						return
+					}
+					rv <- row
 				}
-				rck := make([]byte, len(rkey))
-				copy(rck, key)
-				rcv := make([]byte, len(rval))
-				copy(rcv, rval)
-				row, err := ParseFromKeyValue(rck, rcv)
-				if err != nil {
-					rv <- err
-					return
-				}
-				rv <- row
 			}
 		}
 	}()

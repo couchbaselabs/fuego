@@ -108,11 +108,8 @@ func TestDump(t *testing.T) {
 		t.Errorf("expected 3 fields, got %d", fieldsCount)
 	}
 
-	// 1 text term
-	// 16 numeric terms
-	// 16 date terms
 	// 3 stored fields
-	expectedDocRowCount := int(1 + (2 * (64 / document.DefaultPrecisionStep)) + 3)
+	expectedDocRowCount := 3
 
 	docRowCount := 0
 	docRows := reader.DumpDoc("1")
