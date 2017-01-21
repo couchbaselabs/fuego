@@ -29,6 +29,7 @@ type TermFieldReader struct {
 	term               []byte
 	tfrNext            *TermFrequencyRow
 	keyBuf             []byte
+	postings           *postings
 	field              uint16
 	includeFreq        bool
 	includeNorm        bool
@@ -82,8 +83,6 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		return nil, err
 	}
 
-	postings.Close()
-
 	tfr := NewTermFrequencyRow(term, field, nil, 0, 0)
 
 	iter := indexReader.kvreader.PrefixIterator(tfr.Key())
@@ -99,6 +98,7 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		includeFreq:        includeFreq,
 		includeNorm:        includeNorm,
 		includeTermVectors: includeTermVectors,
+		postings:           postings,
 	}, nil
 }
 
@@ -204,7 +204,13 @@ func (r *TermFieldReader) Close() error {
 	}
 
 	if r.iter != nil {
-		return r.iter.Close()
+		r.iter.Close()
+		r.iter = nil
+	}
+
+	if r.postings != nil {
+		r.postings.Close()
+		r.postings = nil
 	}
 
 	return nil
