@@ -241,7 +241,7 @@ func (p *PostingVecsRow) parseK(key []byte) error {
 			string(key))
 	}
 	p.field = binary.LittleEndian.Uint16(key[1:3])
-	p.term = append(p.term[:0], key[3:len(key)-10]...)
+	p.term = key[3:len(key)-10]
 	p.segId = binary.LittleEndian.Uint64(key[len(key)-9 : len(key)-1])
 	return nil
 }
@@ -251,7 +251,7 @@ func (p *PostingVecsRow) parseV(value []byte) error {
 	if err != nil {
 		return err
 	}
-	p.encoded = append(p.encoded[:0], encoded...)
+	p.encoded = encoded
 	return nil
 }
 
