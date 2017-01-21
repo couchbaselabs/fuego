@@ -24,6 +24,10 @@ import (
 	"github.com/blevesearch/bleve/document"
 )
 
+var stdTestConfig = map[string]interface{}{
+	"path": "test",
+}
+
 func TestDump(t *testing.T) {
 	defer func() {
 		err := DestroyTest()

@@ -237,6 +237,10 @@ func (p *PostingVecsRow) parseK(key []byte) error {
 	if keyLen < 13 {
 		return fmt.Errorf("invalid PostingVecsRow key")
 	}
+	if key[keyLen-1] != 'v' {
+		return fmt.Errorf("invalid PostingVecsRow key suffix: %s",
+			string(key))
+	}
 	p.field = binary.LittleEndian.Uint16(key[1:3])
 	p.term = append(p.term[:0], key[3:len(key)-10]...)
 	p.segId = binary.LittleEndian.Uint64(key[len(key)-9 : len(key)-1])

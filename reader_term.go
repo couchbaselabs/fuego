@@ -77,7 +77,12 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		return nil, err
 	}
 
-	loadPostings(indexReader.kvreader, field, term)
+	postings, err := loadPostings(indexReader.kvreader, field, term)
+	if err != nil {
+		return nil, err
+	}
+
+	postings.Close()
 
 	tfr := NewTermFrequencyRow(term, field, nil, 0, 0)
 
@@ -238,11 +243,16 @@ func (p *postings) Close() {
 }
 
 func loadPostings(kvreader store.KVReader, field uint16, term []byte) (*postings, error) {
-	buf := make([]byte, PostingRowKeySize(term))
-	bufUsed := PostingRowKeyPrefix(field, term, buf)
-	buf = buf[:bufUsed]
+	bufSize := PostingRowKeySize(term)
+	if bufSize < IdRowKeySize {
+		bufSize = IdRowKeySize
+	}
 
-	it := kvreader.PrefixIterator(buf)
+	buf := make([]byte, bufSize)
+	bufUsed := PostingRowKeyPrefix(field, term, buf)
+	bufPrefix := buf[:bufUsed]
+
+	it := kvreader.PrefixIterator(bufPrefix)
 	defer it.Close()
 
 	rv := &postings{
@@ -295,10 +305,16 @@ func loadPostings(kvreader store.KVReader, field uint16, term []byte) (*postings
 		it.Next()
 		k, v, valid = it.Current()
 
+		bufIdUsed := IdRowKeyPrefix(rowRecIds.segId, buf)
+		bufIdPrefix := buf[:bufIdUsed]
+
+		idIter := kvreader.PrefixIterator(bufIdPrefix)
+
 		rv.segPostings = append(rv.segPostings, &segPostings{
 			rowRecIds:    rowRecIds,
 			rowFreqNorms: rowFreqNorms,
 			rowVecs:      rowVecs,
+			idIter:       idIter,
 		})
 	}
 

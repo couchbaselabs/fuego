@@ -21,6 +21,7 @@ import (
 	"github.com/blevesearch/bleve/document"
 	"github.com/blevesearch/bleve/index"
 	"github.com/blevesearch/bleve/index/store/boltdb"
+	"github.com/blevesearch/bleve/index/store/moss"
 )
 
 func TestIndexReader(t *testing.T) {
@@ -32,7 +33,7 @@ func TestIndexReader(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestIndexReader(t *testing.T) {
 	expectedCount = 2
 	count = reader.Count()
 	if count != expectedCount {
-		t.Errorf("Exptected doc count to be: %d got: %d", expectedCount, count)
+		t.Errorf("Expected doc count to be: %d got: %d", expectedCount, count)
 	}
 
 	var match *index.TermFieldDoc
