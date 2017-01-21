@@ -26,9 +26,7 @@ import (
 type TermFieldReader struct {
 	count              uint64
 	indexReader        *IndexReader
-	iter               store.KVIterator
 	term               []byte
-	tfrNext            *TermFrequencyRow
 	keyBuf             []byte
 	segPostingsArr     []*segPostings
 	tmpIdRow           IdRow
@@ -79,15 +77,10 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		return nil, err
 	}
 
-	tfr := NewTermFrequencyRow(term, field, nil, 0, 0)
-
-	iter := indexReader.kvreader.PrefixIterator(tfr.Key())
-
 	atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
 
 	return &TermFieldReader{
 		indexReader:        indexReader,
-		iter:               iter,
 		count:              dictionaryRow.count,
 		term:               term,
 		field:              field,
@@ -105,11 +98,6 @@ func (r *TermFieldReader) Count() uint64 {
 func (r *TermFieldReader) Close() error {
 	if r.indexReader != nil {
 		atomic.AddUint64(&r.indexReader.index.stats.termSearchersFinished, uint64(1))
-	}
-
-	if r.iter != nil {
-		r.iter.Close()
-		r.iter = nil
 	}
 
 	closeSegPostingsArr(r.segPostingsArr)
