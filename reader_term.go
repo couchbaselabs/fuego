@@ -29,17 +29,11 @@ type TermFieldReader struct {
 	term               []byte
 	tfrNext            *TermFrequencyRow
 	keyBuf             []byte
-	postings           *postings
+	segPostingsArr     []*segPostings
 	field              uint16
 	includeFreq        bool
 	includeNorm        bool
 	includeTermVectors bool
-}
-
-type postings struct {
-	term        []byte
-	segPostings []*segPostings
-	field       uint16
 }
 
 type segPostings struct {
@@ -47,7 +41,7 @@ type segPostings struct {
 	rowFreqNorms *PostingFreqNormsRow
 	rowVecs      *PostingVecsRow
 
-	idIter store.KVIterator // Iterator through id lookup rows.
+	idIter store.KVIterator // Iterates through id lookup rows.
 
 	cur int // The current recId by 0-based position.
 }
@@ -78,7 +72,7 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		return nil, err
 	}
 
-	postings, err := loadPostings(indexReader.kvreader, field, term)
+	segPostingsArr, err := loadSegPostingsArr(indexReader.kvreader, field, term)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +92,7 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		includeFreq:        includeFreq,
 		includeNorm:        includeNorm,
 		includeTermVectors: includeTermVectors,
-		postings:           postings,
+		segPostingsArr:     segPostingsArr,
 	}, nil
 }
 
@@ -208,10 +202,7 @@ func (r *TermFieldReader) Close() error {
 		r.iter = nil
 	}
 
-	if r.postings != nil {
-		r.postings.Close()
-		r.postings = nil
-	}
+	closeSegPostingsArr(r.segPostingsArr)
 
 	return nil
 }
@@ -239,8 +230,8 @@ func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.Ter
 
 // ---------------------------------------------
 
-func (p *postings) Close() {
-	for _, sp := range p.segPostings {
+func closeSegPostingsArr(arr []*segPostings) {
+	for _, sp := range arr {
 		if sp.idIter != nil {
 			sp.idIter.Close()
 			sp.idIter = nil
@@ -248,7 +239,7 @@ func (p *postings) Close() {
 	}
 }
 
-func loadPostings(kvreader store.KVReader, field uint16, term []byte) (*postings, error) {
+func loadSegPostingsArr(kvreader store.KVReader, field uint16, term []byte) ([]*segPostings, error) {
 	bufSize := PostingRowKeySize(term)
 	if bufSize < IdRowKeySize {
 		bufSize = IdRowKeySize
@@ -261,50 +252,47 @@ func loadPostings(kvreader store.KVReader, field uint16, term []byte) (*postings
 	it := kvreader.PrefixIterator(bufPrefix)
 	defer it.Close()
 
-	rv := &postings{
-		field: field,
-		term:  term,
-	}
+	var rv []*segPostings
 
 	k, v, valid := it.Current()
 	for valid {
 		rowRecIds, err := NewPostingRecIdsRowKV(k, v)
 		if err != nil {
-			rv.Close()
+			closeSegPostingsArr(rv)
 			return nil, err
 		}
 
 		it.Next()
 		k, v, valid = it.Current()
 		if !valid {
-			rv.Close()
+			closeSegPostingsArr(rv)
 			return nil, fmt.Errorf("expected postingFreqNormsRow")
 		}
 
 		rowFreqNorms, err := NewPostingFreqNormsRowKV(k, v)
 		if err != nil {
-			rv.Close()
+			closeSegPostingsArr(rv)
 			return nil, err
 		}
 		if rowFreqNorms.segId != rowRecIds.segId {
-			rv.Close()
+			closeSegPostingsArr(rv)
 			return nil, fmt.Errorf("mismatched segId's for postingFreqNormsRow")
 		}
 
 		it.Next()
 		k, v, valid = it.Current()
 		if !valid {
-			rv.Close()
+			closeSegPostingsArr(rv)
 			return nil, fmt.Errorf("expected postingVecsRow")
 		}
 
 		rowVecs, err := NewPostingVecsRowKV(k, v)
 		if err != nil {
-			rv.Close()
+			closeSegPostingsArr(rv)
 			return nil, err
 		}
 		if rowVecs.segId != rowRecIds.segId {
-			rv.Close()
+			closeSegPostingsArr(rv)
 			return nil, fmt.Errorf("mismatched segId's for postingVecsRow")
 		}
 
@@ -316,7 +304,7 @@ func loadPostings(kvreader store.KVReader, field uint16, term []byte) (*postings
 
 		idIter := kvreader.PrefixIterator(bufIdPrefix)
 
-		rv.segPostings = append(rv.segPostings, &segPostings{
+		rv = append(rv, &segPostings{
 			rowRecIds:    rowRecIds,
 			rowFreqNorms: rowFreqNorms,
 			rowVecs:      rowVecs,
@@ -325,4 +313,14 @@ func loadPostings(kvreader store.KVReader, field uint16, term []byte) (*postings
 	}
 
 	return rv, nil
+}
+
+func (r *TermFieldReader) PostingsNext(preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
+	if len(r.segPostingsArr) <= 0 {
+		return nil, nil
+	}
+
+	// TODO.
+
+	return nil, nil
 }
