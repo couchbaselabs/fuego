@@ -53,8 +53,7 @@ type PostingVecsRow struct {
 
 // Returns the TermFieldVectors for the i'th record in this PostingVecsRow.
 func (p *PostingVecsRow) TermFieldVectors(i int,
-	fieldCache *index.FieldCache,
-	prealloc []*index.TermFieldVector) (
+	fieldCache *index.FieldCache, prealloc []*index.TermFieldVector) (
 	[]*index.TermFieldVector, error) {
 	numRecs := int(p.encoded[0])
 	recOffset := int(p.encoded[1+i])

@@ -345,22 +345,24 @@ func (r *TermFieldReader) refreshCurDeletionRow() error {
 
 func (r *TermFieldReader) processDeletedRec(sp *segPostings,
 	segId uint64, recId uint64) bool {
-	if r.curDeletionRow != nil {
-		if r.curDeletionRow.segId < segId {
+	if r.curDeletionRow == nil {
+		return false
+	}
+
+	if r.curDeletionRow.segId < segId {
+		r.seekDeletionIter(segId, recId)
+		return true
+	}
+
+	if r.curDeletionRow.segId == segId {
+		if r.curDeletionRow.recId < recId {
 			r.seekDeletionIter(segId, recId)
 			return true
 		}
 
-		if r.curDeletionRow.segId == segId {
-			if r.curDeletionRow.recId < recId {
-				r.seekDeletionIter(segId, recId)
-				return true
-			}
-
-			if r.curDeletionRow.recId == recId {
-				sp.nextRecIdx++ // The rec was deleted.
-				return true
-			}
+		if r.curDeletionRow.recId == recId {
+			sp.nextRecIdx++ // The rec was deleted.
+			return true
 		}
 	}
 
