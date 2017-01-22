@@ -149,10 +149,15 @@ func (p *PostingVecsRow) ValueSize() int {
 }
 
 func (p *PostingVecsRow) ValueTo(buf []byte) (int, error) {
+	if len(p.encoded) <= 0 {
+		return 0, nil
+	}
+
 	bufEncoded, err := Uint32SliceToByteSlice(p.encoded)
 	if err != nil {
 		return 0, err
 	}
+
 	return copy(buf, bufEncoded), nil
 }
 
