@@ -55,6 +55,10 @@ type PostingVecsRow struct {
 func (p *PostingVecsRow) TermFieldVectors(i int,
 	fieldCache *index.FieldCache, prealloc []*index.TermFieldVector) (
 	[]*index.TermFieldVector, error) {
+	if len(p.encoded) <= 0 {
+		return nil, nil
+	}
+
 	numRecs := int(p.encoded[0])
 	recOffset := int(p.encoded[1+i])
 	rec := p.encoded[1+numRecs+recOffset:]
@@ -183,6 +187,10 @@ func NewPostingVecsRowFromVectors(field uint16, term []byte, segId uint64,
 		}
 	}
 
+	if numVecs <= 0 {
+		return NewPostingVecsRow(field, term, segId, nil)
+	}
+
 	size := 1 + numRecs + numRecs + numVecs + (numVecs * 3) + numArrayPositions
 
 	encoded := make([]uint32, size)
@@ -257,12 +265,18 @@ func (p *PostingVecsRow) parseK(key []byte) error {
 	return nil
 }
 
-func (p *PostingVecsRow) parseV(value []byte) error {
-	encoded, err := ByteSliceToUint32Slice(value)
-	if err != nil {
-		return err
+func (p *PostingVecsRow) parseV(value []byte) (err error) {
+	var encoded []uint32
+
+	if len(value) > 0 {
+		encoded, err = ByteSliceToUint32Slice(value)
+		if err != nil {
+			return err
+		}
 	}
+
 	p.encoded = encoded
+
 	return nil
 }
 
