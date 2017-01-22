@@ -24,16 +24,18 @@ import (
 )
 
 type TermFieldReader struct {
-	indexReader    *IndexReader
-	count          uint64
-	term           []byte
-	segPostingsArr []*segPostings
-	deletionIter   store.KVIterator // Iterates through deletion rows.
-	keyBuf         []byte
-	tmpDeletionRow DeletionRow
+	indexReader  *IndexReader
+	count        uint64
+	term         []byte
+	postingsIter store.KVIterator // Iterates through postings rows.
+	deletionIter store.KVIterator // Iterates through deletion rows.
+	keyBuf       []byte
 
 	curSegPostings *segPostings
 	curDeletionRow *DeletionRow
+
+	tmpSegPostings segPostings
+	tmpDeletionRow DeletionRow
 
 	field              uint16
 	includeFreq        bool
@@ -59,9 +61,13 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 	if keySize < DeletionRowKeySize {
 		keySize = DeletionRowKeySize
 	}
+	if keySize < PostingRowKeySize(term) {
+		keySize = PostingRowKeySize(term)
+	}
 	keyBuf := make([]byte, keySize)
 
 	keyUsed, _ := dictionaryRow.KeyTo(keyBuf)
+
 	val, err := indexReader.kvreader.Get(keyBuf[:keyUsed])
 	if err != nil {
 		return nil, err
@@ -82,25 +88,9 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		return nil, err
 	}
 
-	segPostingsArr, err := loadSegPostingsArr(indexReader.kvreader, field, term)
-	if err != nil {
-		return nil, err
-	}
+	keyUsed = PostingRowKeyPrefix(field, term, keyBuf)
 
-	var curSegPostings *segPostings
-	var deletionIter store.KVIterator
-
-	if len(segPostingsArr) > 0 {
-		curSegPostings = segPostingsArr[0]
-
-		segId := curSegPostings.rowRecIds.segId
-
-		keyUsed := DeletionRowKeyPrefix(segId, keyBuf)
-		keyStart := keyBuf[:keyUsed]
-
-		deletionIter =
-			indexReader.kvreader.RangeIterator(keyStart, deletionRowKeyEnd)
-	}
+	postingsIter := indexReader.kvreader.PrefixIterator(keyBuf[:keyUsed])
 
 	rv := &TermFieldReader{
 		indexReader:        indexReader,
@@ -110,19 +100,29 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		includeFreq:        includeFreq,
 		includeNorm:        includeNorm,
 		includeTermVectors: includeTermVectors,
-		segPostingsArr:     segPostingsArr,
-		deletionIter:       deletionIter,
-		curSegPostings:     curSegPostings,
+		postingsIter:       postingsIter,
 		keyBuf:             keyBuf,
 	}
 
-	err = rv.refreshCurDeletionRow()
+	err = rv.nextSegPostings()
 	if err != nil {
-		if deletionIter != nil {
-			deletionIter.Close()
-		}
-
+		rv.postingsIter.Close()
 		return nil, err
+	}
+
+	if rv.curSegPostings != nil {
+		keyUsed := DeletionRowKeyPrefix(
+			rv.curSegPostings.rowRecIds.segId, keyBuf)
+
+		rv.deletionIter = indexReader.kvreader.RangeIterator(
+			keyBuf[:keyUsed], deletionRowKeyEnd)
+
+		err = rv.refreshCurDeletionRow()
+		if err != nil {
+			rv.postingsIter.Close()
+			rv.deletionIter.Close()
+			return nil, err
+		}
 	}
 
 	atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
@@ -139,76 +139,15 @@ func (r *TermFieldReader) Close() error {
 		atomic.AddUint64(&r.indexReader.index.stats.termSearchersFinished, uint64(1))
 	}
 
+	if r.postingsIter != nil {
+		r.postingsIter.Close()
+	}
+
 	if r.deletionIter != nil {
 		r.deletionIter.Close()
 	}
 
 	return nil
-}
-
-// --------------------------------------------------
-
-func loadSegPostingsArr(kvreader store.KVReader, field uint16, term []byte) ([]*segPostings, error) {
-	bufSize := PostingRowKeySize(term)
-	if bufSize < DeletionRowKeySize {
-		bufSize = DeletionRowKeySize
-	}
-
-	buf := make([]byte, bufSize)
-	bufUsed := PostingRowKeyPrefix(field, term, buf)
-	bufPrefix := buf[:bufUsed]
-
-	it := kvreader.PrefixIterator(bufPrefix)
-	defer it.Close()
-
-	var rv []*segPostings
-
-	k, v, valid := it.Current()
-	for valid {
-		rowRecIds, err := NewPostingRecIdsRowKV(k, v)
-		if err != nil {
-			return nil, err
-		}
-
-		it.Next()
-		k, v, valid = it.Current()
-		if !valid {
-			return nil, fmt.Errorf("expected postingFreqNormsRow")
-		}
-
-		rowFreqNorms, err := NewPostingFreqNormsRowKV(k, v)
-		if err != nil {
-			return nil, err
-		}
-		if rowFreqNorms.segId != rowRecIds.segId {
-			return nil, fmt.Errorf("mismatched segId's for postingFreqNormsRow")
-		}
-
-		it.Next()
-		k, v, valid = it.Current()
-		if !valid {
-			return nil, fmt.Errorf("expected postingVecsRow")
-		}
-
-		rowVecs, err := NewPostingVecsRowKV(k, v)
-		if err != nil {
-			return nil, err
-		}
-		if rowVecs.segId != rowRecIds.segId {
-			return nil, fmt.Errorf("mismatched segId's for postingVecsRow")
-		}
-
-		it.Next()
-		k, v, valid = it.Current()
-
-		rv = append(rv, &segPostings{
-			rowRecIds:    rowRecIds,
-			rowFreqNorms: rowFreqNorms,
-			rowVecs:      rowVecs,
-		})
-	}
-
-	return rv, nil
 }
 
 // --------------------------------------------------
@@ -288,16 +227,63 @@ LOOP_SEG:
 	return nil, nil
 }
 
+// --------------------------------------------------
+
 func (r *TermFieldReader) nextSegPostings() error {
 	r.curSegPostings = nil
 
-	r.segPostingsArr = r.segPostingsArr[1:]
-	if len(r.segPostingsArr) > 0 {
-		r.curSegPostings = r.segPostingsArr[0]
+	if r.postingsIter == nil {
+		return nil
 	}
 
-	return r.refreshCurDeletionRow()
+	k, v, valid := r.postingsIter.Current()
+	if !valid {
+		return nil
+	}
+	rowRecIds, err := NewPostingRecIdsRowKV(k, v)
+	if err != nil {
+		return err
+	}
+
+	r.postingsIter.Next()
+	k, v, valid = r.postingsIter.Current()
+	if !valid {
+		return fmt.Errorf("expected postingFreqNormsRow")
+	}
+	rowFreqNorms, err := NewPostingFreqNormsRowKV(k, v)
+	if err != nil {
+		return err
+	}
+	if rowFreqNorms.segId != rowRecIds.segId {
+		return fmt.Errorf("mismatched segId's for postingFreqNormsRow")
+	}
+
+	r.postingsIter.Next()
+	k, v, valid = r.postingsIter.Current()
+	if !valid {
+		return fmt.Errorf("expected postingVecsRow")
+	}
+	rowVecs, err := NewPostingVecsRowKV(k, v)
+	if err != nil {
+		return err
+	}
+	if rowVecs.segId != rowRecIds.segId {
+		return fmt.Errorf("mismatched segId's for postingVecsRow")
+	}
+
+	r.postingsIter.Next()
+
+	r.tmpSegPostings.rowRecIds = rowRecIds
+	r.tmpSegPostings.rowFreqNorms = rowFreqNorms
+	r.tmpSegPostings.rowVecs = rowVecs
+	r.tmpSegPostings.nextRecIdx = 0
+
+	r.curSegPostings = &r.tmpSegPostings
+
+	return nil
 }
+
+// --------------------------------------------------
 
 func (r *TermFieldReader) seekDeletionIter(segId, recId uint64) error {
 	if r.deletionIter != nil {
@@ -316,7 +302,7 @@ func (r *TermFieldReader) seekDeletionIter(segId, recId uint64) error {
 func (r *TermFieldReader) refreshCurDeletionRow() error {
 	r.curDeletionRow = nil
 
-	if r.curSegPostings == nil || r.deletionIter == nil {
+	if r.deletionIter == nil {
 		return nil
 	}
 
@@ -334,6 +320,8 @@ func (r *TermFieldReader) refreshCurDeletionRow() error {
 
 	return nil
 }
+
+// --------------------------------------------------
 
 func (r *TermFieldReader) processDeletedRec(sp *segPostings,
 	segId uint64, recId uint64) bool {
@@ -358,6 +346,8 @@ func (r *TermFieldReader) processDeletedRec(sp *segPostings,
 
 	return false
 }
+
+// --------------------------------------------------
 
 func (r *TermFieldReader) prepareResultRec(sp *segPostings,
 	recIdx int, recId uint64, preAlloced *index.TermFieldDoc) (
