@@ -380,10 +380,11 @@ func (r *TermFieldReader) prepareResultRec(sp *segPostings,
 		rv = &index.TermFieldDoc{}
 	}
 
-	if cap(rv.ID) < 16 {
+	if cap(rv.ID) >= 16 {
+		rv.ID = rv.ID[:16]
+	} else {
 		rv.ID = make([]byte, 16)
 	}
-	rv.ID = rv.ID[:16]
 
 	binary.BigEndian.PutUint64(rv.ID[:8], sp.rowRecIds.segId)
 	binary.BigEndian.PutUint64(rv.ID[8:], recId)
