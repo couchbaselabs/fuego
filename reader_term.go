@@ -55,7 +55,14 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 	includeFreq, includeNorm, includeTermVectors bool) (*TermFieldReader, error) {
 	dictionaryRow := NewDictionaryRow(term, field, 0)
 
-	val, err := indexReader.kvreader.Get(dictionaryRow.Key())
+	keySize := dictionaryRow.KeySize()
+	if keySize < DeletionRowKeySize {
+		keySize = DeletionRowKeySize
+	}
+	keyBuf := make([]byte, keySize)
+
+	keyUsed, _ := dictionaryRow.KeyTo(keyBuf)
+	val, err := indexReader.kvreader.Get(keyBuf[:keyUsed])
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +86,6 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 	if err != nil {
 		return nil, err
 	}
-
-	keyBuf := make([]byte, DeletionRowKeySize)
 
 	var curSegPostings *segPostings
 	var deletionIter store.KVIterator
