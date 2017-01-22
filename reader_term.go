@@ -387,7 +387,7 @@ func (r *TermFieldReader) prepareResultRec(sp *segPostings,
 		rv.ID = make([]byte, 16)
 	}
 
-	binary.BigEndian.PutUint64(rv.ID[:8], sp.rowRecIds.segId)
+	binary.BigEndian.PutUint64(rv.ID, sp.rowRecIds.segId)
 	binary.BigEndian.PutUint64(rv.ID[8:], recId)
 
 	if r.includeFreq {
