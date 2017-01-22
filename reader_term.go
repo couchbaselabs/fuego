@@ -148,29 +148,6 @@ func (r *TermFieldReader) Close() error {
 
 // --------------------------------------------------
 
-func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.TermFieldVector {
-	if len(in) <= 0 {
-		return nil
-	}
-
-	fieldName := udc.fieldCache.FieldIndexed(in[0].field)
-
-	rv := make([]*index.TermFieldVector, len(in))
-	for i, tv := range in {
-		rv[i] = &index.TermFieldVector{
-			Field:          fieldName,
-			ArrayPositions: tv.arrayPositions,
-			Pos:            tv.pos,
-			Start:          tv.start,
-			End:            tv.end,
-		}
-	}
-
-	return rv
-}
-
-// --------------------------------------------------
-
 func loadSegPostingsArr(kvreader store.KVReader, field uint16, term []byte) ([]*segPostings, error) {
 	bufSize := PostingRowKeySize(term)
 	if bufSize < DeletionRowKeySize {
@@ -407,12 +384,13 @@ func (r *TermFieldReader) prepareResultRec(sp *segPostings,
 	}
 
 	if r.includeTermVectors {
-		tvs, err := sp.rowVecs.TermVectors(recIdx, nil)
+		tvs, err := sp.rowVecs.TermFieldVectors(recIdx,
+			r.indexReader.index.fieldCache, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		rv.Vectors = r.indexReader.index.termFieldVectorsFromTermVectors(tvs)
+		rv.Vectors = tvs
 	}
 
 	return rv, nil

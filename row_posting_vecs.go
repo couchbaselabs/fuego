@@ -17,6 +17,8 @@ package fuego
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/blevesearch/bleve/index"
 )
 
 type PostingVecsRow struct {
@@ -49,9 +51,11 @@ type PostingVecsRow struct {
 	// TODO: Get rid of the 0th' offset, which is always 0?
 }
 
-// Returns the TermVectors for the i'th record in this PostingVecsRow.
-func (p *PostingVecsRow) TermVectors(i int, prealloc []*TermVector) (
-	[]*TermVector, error) {
+// Returns the TermFieldVectors for the i'th record in this PostingVecsRow.
+func (p *PostingVecsRow) TermFieldVectors(i int,
+	fieldCache *index.FieldCache,
+	prealloc []*index.TermFieldVector) (
+	[]*index.TermFieldVector, error) {
 	numRecs := int(p.encoded[0])
 	recOffset := int(p.encoded[1+i])
 	rec := p.encoded[1+numRecs+recOffset:]
@@ -66,13 +70,16 @@ func (p *PostingVecsRow) TermVectors(i int, prealloc []*TermVector) (
 
 	rv := prealloc
 	if cap(rv) < numVecs {
-		rva := make([]TermVector, numVecs)
-		rv = make([]*TermVector, numVecs)
+		rva := make([]index.TermFieldVector, numVecs)
+		rv = make([]*index.TermFieldVector, numVecs)
 		for j := 0; j < numVecs; j++ {
 			rv[j] = &rva[j]
 		}
 	}
 	rv = rv[:numVecs]
+
+	var field uint16
+	var fieldName string
 
 	for j := 0; j < numVecs; j++ {
 		tv := rv[j]
@@ -86,18 +93,23 @@ func (p *PostingVecsRow) TermVectors(i int, prealloc []*TermVector) (
 
 		fieldAndLength := vec[0]
 
-		tv.field = uint16(0x0000ffff & (fieldAndLength >> 16))
-		tv.start = uint64(vec[1])
-		tv.end = tv.start + uint64(0x0000ffff&fieldAndLength)
-		tv.pos = uint64(vec[2])
-
-		arrayPositions := vec[3:] // TODO: Maybe avoid array copy?
-		if cap(tv.arrayPositions) < len(arrayPositions) {
-			tv.arrayPositions = make([]uint64, len(arrayPositions))
+		if field == 0 {
+			field = uint16(0x0000ffff & (fieldAndLength >> 16))
+			fieldName = fieldCache.FieldIndexed(field)
 		}
-		tv.arrayPositions = tv.arrayPositions[:len(arrayPositions)]
+
+		tv.Field = fieldName
+		tv.Start = uint64(vec[1])
+		tv.End = tv.Start + uint64(0x0000ffff&fieldAndLength)
+		tv.Pos = uint64(vec[2])
+
+		arrayPositions := vec[3:]
+		if cap(tv.ArrayPositions) < len(arrayPositions) {
+			tv.ArrayPositions = make([]uint64, len(arrayPositions))
+		}
+		tv.ArrayPositions = tv.ArrayPositions[:len(arrayPositions)]
 		for k, pos := range arrayPositions {
-			tv.arrayPositions[k] = uint64(pos)
+			tv.ArrayPositions[k] = uint64(pos)
 		}
 	}
 
