@@ -71,6 +71,8 @@ func newDocIDReaderOnly(indexReader *IndexReader, ids []string) (*DocIDReader, e
 }
 
 func (r *DocIDReader) Next() (index.IndexInternalID, error) {
+	// TODO: Double check internal/exteral ID handling.
+
 	key, val, valid := r.iterator.Current()
 
 	if r.onlyMode {
@@ -122,6 +124,8 @@ func (r *DocIDReader) Next() (index.IndexInternalID, error) {
 }
 
 func (r *DocIDReader) Advance(docID index.IndexInternalID) (index.IndexInternalID, error) {
+	// TODO: Double check internal/exteral ID handling.
+
 	if r.onlyMode {
 		r.onlyPos = sort.SearchStrings(r.only, string(docID))
 		if r.onlyPos >= len(r.only) {

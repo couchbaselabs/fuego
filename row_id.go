@@ -21,7 +21,8 @@ import (
 	"github.com/blevesearch/bleve/index"
 )
 
-func (i *IndexReader) ExternalID(internalId index.IndexInternalID) (string, error) {
+func (i *IndexReader) ExternalID(internalId index.IndexInternalID) (
+	string, error) {
 	docIDBytes, err := i.ExternalIDBytes(internalId)
 	if err != nil {
 		return "", err
@@ -30,7 +31,8 @@ func (i *IndexReader) ExternalID(internalId index.IndexInternalID) (string, erro
 	return string(docIDBytes), nil
 }
 
-func (i *IndexReader) ExternalIDBytes(internalId index.IndexInternalID) ([]byte, error) {
+func (i *IndexReader) ExternalIDBytes(internalId index.IndexInternalID) (
+	[]byte, error) {
 	buf := GetRowBuffer()
 	if cap(buf) < IdRowKeySize {
 		buf = make([]byte, IdRowKeySize)
