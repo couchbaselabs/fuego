@@ -245,8 +245,6 @@ LOOP_SEG:
 				}
 
 				recIdx := sp.nextRecIdx
-				sp.nextRecIdx++
-
 				recId := sp.rowRecIds.recIds[recIdx]
 
 				if deletionRow != nil {
@@ -256,9 +254,12 @@ LOOP_SEG:
 					}
 
 					if deletionRow.recId == recId {
+						sp.nextRecIdx++
 						continue LOOP_REC // The rec was deleted.
 					}
 				}
+
+				sp.nextRecIdx++
 
 				// The deletionRow is nil or is >= recId, so found a rec.
 				return r.prepareResultRec(sp, recIdx, recId, preAlloced)
@@ -304,10 +305,10 @@ LOOP_SEG:
 				}
 
 				recIdx := sp.nextRecIdx
-				sp.nextRecIdx++
-
 				recId := sp.rowRecIds.recIds[recIdx]
+
 				if recId < wantRecId {
+					sp.nextRecIdx++
 					continue LOOP_REC
 				}
 
@@ -318,9 +319,12 @@ LOOP_SEG:
 					}
 
 					if deletionRow.recId == recId {
+						sp.nextRecIdx++
 						continue LOOP_REC // The rec was deleted.
 					}
 				}
+
+				sp.nextRecIdx++
 
 				// The deletionRow is nil or is >= recId, so found a rec.
 				return r.prepareResultRec(sp, recIdx, recId, preAlloced)
