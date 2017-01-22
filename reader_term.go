@@ -185,8 +185,8 @@ LOOP_SEG:
 
 func (r *TermFieldReader) Advance(wantId index.IndexInternalID,
 	preAlloced *index.TermFieldDoc) (*index.TermFieldDoc, error) {
-	wantSegId := binary.LittleEndian.Uint64(wantId[:8])
-	wantRecId := binary.LittleEndian.Uint64(wantId[8:])
+	wantSegId := binary.BigEndian.Uint64(wantId[:8])
+	wantRecId := binary.BigEndian.Uint64(wantId[8:])
 
 LOOP_SEG:
 	for r.curSegPostings != nil {
@@ -380,8 +380,8 @@ func (r *TermFieldReader) prepareResultRec(sp *segPostings,
 	}
 	rv.ID = rv.ID[:16]
 
-	binary.LittleEndian.PutUint64(rv.ID[:8], sp.rowRecIds.segId)
-	binary.LittleEndian.PutUint64(rv.ID[8:], recId)
+	binary.BigEndian.PutUint64(rv.ID[:8], sp.rowRecIds.segId)
+	binary.BigEndian.PutUint64(rv.ID[8:], recId)
 
 	if r.includeFreq {
 		rv.Freq = uint64(sp.rowFreqNorms.Freq(recIdx))

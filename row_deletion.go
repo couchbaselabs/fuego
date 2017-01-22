@@ -21,7 +21,7 @@ import (
 
 func DeletionRowKeyPrefix(segId uint64, buf []byte) int {
 	buf[0] = 'x'
-	binary.LittleEndian.PutUint64(buf[1:], segId)
+	binary.BigEndian.PutUint64(buf[1:], segId)
 	return 9
 }
 
@@ -50,7 +50,7 @@ func (p *DeletionRow) KeySize() int {
 
 func (p *DeletionRow) KeyTo(buf []byte) (int, error) {
 	used := DeletionRowKeyPrefix(p.segId, buf)
-	binary.LittleEndian.PutUint64(buf[used:], p.recId)
+	binary.BigEndian.PutUint64(buf[used:], p.recId)
 	return used + 8, nil
 }
 
@@ -87,8 +87,8 @@ func NewDeletionRowK(key []byte) (*DeletionRow, error) {
 }
 
 func (p *DeletionRow) parseK(key []byte) error {
-	p.segId = binary.LittleEndian.Uint64(key[1 : 1+8])
-	p.recId = binary.LittleEndian.Uint64(key[1+8 : 1+8+8])
+	p.segId = binary.BigEndian.Uint64(key[1 : 1+8])
+	p.recId = binary.BigEndian.Uint64(key[1+8 : 1+8+8])
 	return nil
 }
 

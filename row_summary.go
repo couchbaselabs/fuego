@@ -51,7 +51,7 @@ func (dr *SummaryRow) ValueSize() int {
 }
 
 func (dr *SummaryRow) ValueTo(buf []byte) (int, error) {
-	binary.LittleEndian.PutUint64(buf, dr.LastUsedSegId)
+	binary.BigEndian.PutUint64(buf, dr.LastUsedSegId)
 	return 8, nil
 }
 
@@ -65,6 +65,6 @@ func NewSummaryRow(lastUsedSegId uint64) *SummaryRow {
 
 func NewSummaryRowKV(key, value []byte) (*SummaryRow, error) {
 	return &SummaryRow{
-		LastUsedSegId: binary.LittleEndian.Uint64(value),
+		LastUsedSegId: binary.BigEndian.Uint64(value),
 	}, nil
 }

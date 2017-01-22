@@ -47,7 +47,7 @@ func (p *PostingFreqNormsRow) KeySize() int {
 
 func (p *PostingFreqNormsRow) KeyTo(buf []byte) (int, error) {
 	used := PostingRowKeyPrefix(p.field, p.term, buf)
-	binary.LittleEndian.PutUint64(buf[used:used+8], p.segId)
+	binary.BigEndian.PutUint64(buf[used:used+8], p.segId)
 	used += 8
 	buf[used] = 'f'
 	used += 1
@@ -106,7 +106,7 @@ func (p *PostingFreqNormsRow) parseK(key []byte) error {
 	}
 	p.field = binary.LittleEndian.Uint16(key[1:3])
 	p.term = key[3 : len(key)-10]
-	p.segId = binary.LittleEndian.Uint64(key[len(key)-9 : len(key)-1])
+	p.segId = binary.BigEndian.Uint64(key[len(key)-9 : len(key)-1])
 	return nil
 }
 
