@@ -260,17 +260,19 @@ func (r *TermFieldReader) nextSegPostings() error {
 	if !valid {
 		return fmt.Errorf("expected postingFreqNormsRow")
 	}
-	rowFreqNorms := r.tmpSegPostings.rowFreqNorms
-	err = rowFreqNorms.parseK(k)
-	if err != nil {
-		return err
-	}
-	err = rowFreqNorms.parseV(v)
-	if err != nil {
-		return err
-	}
-	if rowFreqNorms.segId != rowRecIds.segId {
-		return fmt.Errorf("mismatched segId's for postingFreqNormsRow")
+	if r.includeFreq || r.includeNorm {
+		rowFreqNorms := r.tmpSegPostings.rowFreqNorms
+		err = rowFreqNorms.parseK(k)
+		if err != nil {
+			return err
+		}
+		err = rowFreqNorms.parseV(v)
+		if err != nil {
+			return err
+		}
+		if rowFreqNorms.segId != rowRecIds.segId {
+			return fmt.Errorf("mismatched segId's for postingFreqNormsRow")
+		}
 	}
 
 	r.postingsIter.Next()
@@ -278,20 +280,19 @@ func (r *TermFieldReader) nextSegPostings() error {
 	if !valid {
 		return fmt.Errorf("expected postingVecsRow")
 	}
-	rowVecs := r.tmpSegPostings.rowVecs
-	if rowVecs == nil {
-		rowVecs = &PostingVecsRow{}
-	}
-	err = rowVecs.parseK(k)
-	if err != nil {
-		return err
-	}
-	err = rowVecs.parseV(v)
-	if err != nil {
-		return err
-	}
-	if rowVecs.segId != rowRecIds.segId {
-		return fmt.Errorf("mismatched segId's for postingVecsRow")
+	if r.includeTermVectors {
+		rowVecs := r.tmpSegPostings.rowVecs
+		err = rowVecs.parseK(k)
+		if err != nil {
+			return err
+		}
+		err = rowVecs.parseV(v)
+		if err != nil {
+			return err
+		}
+		if rowVecs.segId != rowRecIds.segId {
+			return fmt.Errorf("mismatched segId's for postingVecsRow")
+		}
 	}
 
 	r.postingsIter.Next()
