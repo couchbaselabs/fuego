@@ -29,6 +29,8 @@ var DeletionRowKeySize = 1 + 8 + 8
 
 var deletionRowValue = []byte{}
 
+var deletionRowKeyEnd = []byte{'y'}
+
 // ------------------------------------------------------
 
 type DeletionRow struct {
