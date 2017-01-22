@@ -73,6 +73,9 @@ Also, additional, persisted KV rows introduced by fuego would be...
       A missing (already deleted) id lookup row for a segId:recId
         means that the recId should be ignored in the postings.
 
+    deletions
+      <deletion>:segId:recId -> (nil / 0 byte value)
+
     counts
       <countSegDeletions>:segId -> 1
       <countSegSize>:segId -> 1000

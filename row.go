@@ -60,6 +60,8 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 			return NewTermFrequencyRowKV(key, value)
 		case 'v':
 			return NewVersionRowKV(key, value)
+		case 'x':
+			return NewDeletionRowKV(key, value)
 		case 'z':
 			return NewSummaryRowKV(key, value)
 		}
