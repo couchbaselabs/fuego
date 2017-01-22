@@ -105,8 +105,8 @@ func (p *PostingFreqNormsRow) parseK(key []byte) error {
 			string(key))
 	}
 	p.field = binary.LittleEndian.Uint16(key[1:3])
-	p.term = key[3 : len(key)-10]
-	p.segId = binary.BigEndian.Uint64(key[len(key)-9 : len(key)-1])
+	p.term = key[3 : keyLen-10]
+	p.segId = binary.BigEndian.Uint64(key[keyLen-9 : keyLen-1])
 	return nil
 }
 
