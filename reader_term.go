@@ -34,6 +34,9 @@ type TermFieldReader struct {
 	includeFreq        bool
 	includeNorm        bool
 	includeTermVectors bool
+
+	curSegPostings *segPostings
+	curDeletionRow *DeletionRow
 }
 
 type segPostings struct {
@@ -77,9 +80,15 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		return nil, err
 	}
 
+	var curSegPostings *segPostings
+	if len(segPostingsArr) > 0 {
+		curSegPostings = segPostingsArr[0]
+
+	}
+
 	atomic.AddUint64(&indexReader.index.stats.termSearchersStarted, uint64(1))
 
-	return &TermFieldReader{
+	rv := &TermFieldReader{
 		indexReader:        indexReader,
 		count:              dictionaryRow.count,
 		term:               term,
@@ -88,7 +97,17 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		includeNorm:        includeNorm,
 		includeTermVectors: includeTermVectors,
 		segPostingsArr:     segPostingsArr,
-	}, nil
+		curSegPostings:     curSegPostings,
+	}
+
+	err = rv.refreshCurDeletionRow()
+	if err != nil {
+		closeSegPostingsArr(segPostingsArr)
+		return nil, err
+	}
+
+	return rv, nil
+
 }
 
 func (r *TermFieldReader) Count() uint64 {
@@ -220,50 +239,35 @@ func loadSegPostingsArr(kvreader store.KVReader, field uint16, term []byte) ([]*
 func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (
 	*index.TermFieldDoc, error) {
 LOOP_SEG:
-	for len(r.segPostingsArr) > 0 {
-		sp := r.segPostingsArr[0]
+	for r.curSegPostings != nil {
+		sp := r.curSegPostings
 
-	LOOP_DELETION:
+	LOOP_REC:
 		for true {
-			var deletionRow *DeletionRow
+			if sp.nextRecIdx >= len(sp.rowRecIds.recIds) {
+				r.nextSegPostings()
+				continue LOOP_SEG
+			}
 
-			deletionRowKey, _, valid := sp.deletionIter.Current()
-			if valid {
-				deletionRow = &r.tmpDeletionRow
+			recIdx := sp.nextRecIdx
+			recId := sp.rowRecIds.recIds[recIdx]
 
-				err := deletionRow.parseK(deletionRowKey)
-				if err != nil {
-					return nil, err
+			if r.curDeletionRow != nil {
+				if r.curDeletionRow.recId < recId {
+					r.seekDeletionIter(recId)
+					continue LOOP_REC
+				}
+
+				if r.curDeletionRow.recId == recId {
+					sp.nextRecIdx++
+					continue LOOP_REC // The rec was deleted.
 				}
 			}
 
-		LOOP_REC:
-			for true {
-				if sp.nextRecIdx >= len(sp.rowRecIds.recIds) {
-					r.nextSegPostings(sp)
-					continue LOOP_SEG
-				}
+			sp.nextRecIdx++
 
-				recIdx := sp.nextRecIdx
-				recId := sp.rowRecIds.recIds[recIdx]
-
-				if deletionRow != nil {
-					if deletionRow.recId < recId {
-						r.seekDeletionIter(sp, recId)
-						continue LOOP_DELETION
-					}
-
-					if deletionRow.recId == recId {
-						sp.nextRecIdx++
-						continue LOOP_REC // The rec was deleted.
-					}
-				}
-
-				sp.nextRecIdx++
-
-				// The deletionRow is nil or is >= recId, so found a rec.
-				return r.prepareResultRec(sp, recIdx, recId, preAlloced)
-			}
+			// The deletionRow is nil or is > recId, so found a rec.
+			return r.prepareResultRec(sp, recIdx, recId, preAlloced)
 		}
 	}
 
@@ -276,84 +280,97 @@ func (r *TermFieldReader) Advance(wantId index.IndexInternalID,
 	wantRecId := binary.LittleEndian.Uint64(wantId[8:])
 
 LOOP_SEG:
-	for len(r.segPostingsArr) > 0 {
-		sp := r.segPostingsArr[0]
+	for r.curSegPostings != nil {
+		sp := r.curSegPostings
 		if sp.rowRecIds.segId < wantSegId {
-			r.nextSegPostings(sp)
+			r.nextSegPostings()
 			continue LOOP_SEG
 		}
 
-	LOOP_DELETION:
+	LOOP_REC:
 		for true {
-			var deletionRow *DeletionRow
-
-			deletionRowKey, _, valid := sp.deletionIter.Current()
-			if valid {
-				deletionRow = &r.tmpDeletionRow
-
-				err := deletionRow.parseK(deletionRowKey)
-				if err != nil {
-					return nil, err
-				}
+			if sp.nextRecIdx >= len(sp.rowRecIds.recIds) {
+				r.nextSegPostings()
+				continue LOOP_SEG
 			}
 
-		LOOP_REC:
-			for true {
-				if sp.nextRecIdx >= len(sp.rowRecIds.recIds) {
-					r.nextSegPostings(sp)
-					continue LOOP_SEG
-				}
+			recIdx := sp.nextRecIdx
+			recId := sp.rowRecIds.recIds[recIdx]
 
-				recIdx := sp.nextRecIdx
-				recId := sp.rowRecIds.recIds[recIdx]
+			if recId < wantRecId {
+				sp.nextRecIdx++
+				continue LOOP_REC
+			}
 
-				if recId < wantRecId {
-					sp.nextRecIdx++
+			if r.curDeletionRow != nil {
+				if r.curDeletionRow.recId < recId {
+					r.seekDeletionIter(recId)
 					continue LOOP_REC
 				}
 
-				if deletionRow != nil {
-					if deletionRow.recId < recId {
-						r.seekDeletionIter(sp, recId)
-						continue LOOP_DELETION
-					}
-
-					if deletionRow.recId == recId {
-						sp.nextRecIdx++
-						continue LOOP_REC // The rec was deleted.
-					}
+				if r.curDeletionRow.recId == recId {
+					sp.nextRecIdx++
+					continue LOOP_REC // The rec was deleted.
 				}
-
-				sp.nextRecIdx++
-
-				// The deletionRow is nil or is >= recId, so found a rec.
-				return r.prepareResultRec(sp, recIdx, recId, preAlloced)
 			}
+
+			sp.nextRecIdx++
+
+			// The deletionRow is nil or is > recId, so found a rec.
+			return r.prepareResultRec(sp, recIdx, recId, preAlloced)
 		}
 	}
 
 	return nil, nil
 }
 
-func (r *TermFieldReader) nextSegPostings(sp *segPostings) {
-	r.segPostingsArr = r.segPostingsArr[1:]
+func (r *TermFieldReader) nextSegPostings() error {
+	if r.curSegPostings != nil {
+		r.curSegPostings.deletionIter.Close()
+		r.curSegPostings.deletionIter = nil
+		r.curSegPostings = nil
+	}
 
-	sp.deletionIter.Close()
-	sp.deletionIter = nil
+	r.segPostingsArr = r.segPostingsArr[1:]
+	if len(r.segPostingsArr) > 0 {
+		r.curSegPostings = r.segPostingsArr[0]
+	}
+
+	return r.refreshCurDeletionRow()
 }
 
-func (r *TermFieldReader) seekDeletionIter(sp *segPostings, recId uint64) {
-	deletionRow := &r.tmpDeletionRow
-	deletionRow.segId = sp.rowRecIds.segId
-	deletionRow.recId = recId
-
+func (r *TermFieldReader) seekDeletionIter(recId uint64) error {
 	if cap(r.keyBuf) < DeletionRowKeySize {
 		r.keyBuf = make([]byte, DeletionRowKeySize)
 	}
 	keyBuf := r.keyBuf[:DeletionRowKeySize]
-	keyBufUsed, _ := deletionRow.KeyTo(keyBuf)
+	keyBufUsed, _ := r.curDeletionRow.KeyTo(keyBuf)
 
-	sp.deletionIter.Seek(keyBuf[:keyBufUsed])
+	r.curSegPostings.deletionIter.Seek(keyBuf[:keyBufUsed])
+
+	return r.refreshCurDeletionRow()
+}
+
+func (r *TermFieldReader) refreshCurDeletionRow() error {
+	r.curDeletionRow = nil
+
+	if r.curSegPostings == nil {
+		return nil
+	}
+
+	deletionRowKey, _, valid := r.curSegPostings.deletionIter.Current()
+	if !valid {
+		return nil
+	}
+
+	err := r.tmpDeletionRow.parseK(deletionRowKey)
+	if err != nil {
+		return err
+	}
+
+	r.curDeletionRow = &r.tmpDeletionRow
+
+	return nil
 }
 
 func (r *TermFieldReader) prepareResultRec(sp *segPostings,
