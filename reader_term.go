@@ -159,18 +159,12 @@ func (r *TermFieldReader) Close() error {
 
 func (r *TermFieldReader) Next(preAlloced *index.TermFieldDoc) (
 	*index.TermFieldDoc, error) {
-LOOP_SEG:
 	for r.curSegPostings != nil {
 		sp := r.curSegPostings
 		segId := sp.rowRecIds.segId
 
 	LOOP_REC:
-		for true {
-			if sp.nextRecIdx >= len(sp.rowRecIds.recIds) {
-				r.nextSegPostings()
-				continue LOOP_SEG
-			}
-
+		for sp.nextRecIdx < len(sp.rowRecIds.recIds) {
 			recIdx := sp.nextRecIdx
 			recId := sp.rowRecIds.recIds[recIdx]
 
@@ -183,6 +177,8 @@ LOOP_SEG:
 			// The deletionRow is nil or is > recId, so found a rec.
 			return r.prepareResultRec(sp, recIdx, recId, preAlloced)
 		}
+
+		r.nextSegPostings()
 	}
 
 	return nil, nil
@@ -204,12 +200,7 @@ LOOP_SEG:
 		}
 
 	LOOP_REC:
-		for true {
-			if sp.nextRecIdx >= len(sp.rowRecIds.recIds) {
-				r.nextSegPostings()
-				continue LOOP_SEG
-			}
-
+		for sp.nextRecIdx < len(sp.rowRecIds.recIds) {
 			recIdx := sp.nextRecIdx
 			recId := sp.rowRecIds.recIds[recIdx]
 
@@ -227,6 +218,8 @@ LOOP_SEG:
 			// The deletionRow is nil or is > recId, so found a rec.
 			return r.prepareResultRec(sp, recIdx, recId, preAlloced)
 		}
+
+		r.nextSegPostings()
 	}
 
 	return nil, nil
