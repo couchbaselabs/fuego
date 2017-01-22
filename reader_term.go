@@ -29,7 +29,7 @@ type TermFieldReader struct {
 	term               []byte
 	keyBuf             []byte
 	segPostingsArr     []*segPostings
-	tmpIdRow           IdRow
+	tmpDeletionRow     DeletionRow
 	field              uint16
 	includeFreq        bool
 	includeNorm        bool
@@ -41,7 +41,7 @@ type segPostings struct {
 	rowFreqNorms *PostingFreqNormsRow
 	rowVecs      *PostingVecsRow
 
-	idIter store.KVIterator // Iterates through id lookup rows.
+	deletionIter store.KVIterator // Iterates through deletion rows.
 
 	nextRecIdx int // The next recId by 0-based position.
 }
@@ -132,17 +132,17 @@ func (udc *Fuego) termFieldVectorsFromTermVectors(in []*TermVector) []*index.Ter
 
 func closeSegPostingsArr(arr []*segPostings) {
 	for _, sp := range arr {
-		if sp.idIter != nil {
-			sp.idIter.Close()
-			sp.idIter = nil
+		if sp.deletionIter != nil {
+			sp.deletionIter.Close()
+			sp.deletionIter = nil
 		}
 	}
 }
 
 func loadSegPostingsArr(kvreader store.KVReader, field uint16, term []byte) ([]*segPostings, error) {
 	bufSize := PostingRowKeySize(term)
-	if bufSize < IdRowKeySize {
-		bufSize = IdRowKeySize
+	if bufSize < DeletionRowKeySize {
+		bufSize = DeletionRowKeySize
 	}
 
 	buf := make([]byte, bufSize)
@@ -199,16 +199,16 @@ func loadSegPostingsArr(kvreader store.KVReader, field uint16, term []byte) ([]*
 		it.Next()
 		k, v, valid = it.Current()
 
-		bufIdUsed := IdRowKeyPrefix(rowRecIds.segId, buf)
-		bufIdPrefix := buf[:bufIdUsed]
+		bufDeletionKeyUsed := DeletionRowKeyPrefix(rowRecIds.segId, buf)
+		bufDeletionKeyPrefix := buf[:bufDeletionKeyUsed]
 
-		idIter := kvreader.PrefixIterator(bufIdPrefix)
+		deletionIter := kvreader.PrefixIterator(bufDeletionKeyPrefix)
 
 		rv = append(rv, &segPostings{
 			rowRecIds:    rowRecIds,
 			rowFreqNorms: rowFreqNorms,
 			rowVecs:      rowVecs,
-			idIter:       idIter,
+			deletionIter: deletionIter,
 		})
 	}
 
@@ -223,18 +223,18 @@ LOOP_SEG:
 	for len(r.segPostingsArr) > 0 {
 		sp := r.segPostingsArr[0]
 
-	LOOP_IDITER:
+	LOOP_DELETION:
 		for true {
-			idRowKey, _, valid := sp.idIter.Current()
-			if !valid {
-				r.nextSegPostings(sp)
-				continue LOOP_SEG
-			}
+			var deletionRow *DeletionRow
 
-			idRow := &r.tmpIdRow
-			err := idRow.parseK(idRowKey)
-			if err != nil {
-				return nil, err
+			deletionRowKey, _, valid := sp.deletionIter.Current()
+			if valid {
+				deletionRow = &r.tmpDeletionRow
+
+				err := deletionRow.parseK(deletionRowKey)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 		LOOP_REC:
@@ -249,17 +249,19 @@ LOOP_SEG:
 
 				recId := sp.rowRecIds.recIds[recIdx]
 
-				if idRow.recId < recId {
-					r.seekIdIter(sp, recId)
-					continue LOOP_IDITER
+				if deletionRow != nil {
+					if deletionRow.recId < recId {
+						r.seekDeletionIter(sp, recId)
+						continue LOOP_DELETION
+					}
+
+					if deletionRow.recId == recId {
+						continue LOOP_REC // The rec was deleted.
+					}
 				}
 
-				if idRow.recId > recId {
-					continue LOOP_REC // The rec was deleted.
-				}
-
-				// The idRow.recId == recId, so found a rec.
-				return r.prepareResultRec(sp, idRowKey, recIdx, preAlloced)
+				// The deletionRow is nil or is >= recId, so found a rec.
+				return r.prepareResultRec(sp, recIdx, recId, preAlloced)
 			}
 		}
 	}
@@ -280,23 +282,18 @@ LOOP_SEG:
 			continue LOOP_SEG
 		}
 
-	LOOP_IDITER:
+	LOOP_DELETION:
 		for true {
-			idRowKey, _, valid := sp.idIter.Current()
-			if !valid {
-				r.nextSegPostings(sp)
-				continue LOOP_SEG
-			}
+			var deletionRow *DeletionRow
 
-			idRow := &r.tmpIdRow
-			err := idRow.parseK(idRowKey)
-			if err != nil {
-				return nil, err
-			}
+			deletionRowKey, _, valid := sp.deletionIter.Current()
+			if valid {
+				deletionRow = &r.tmpDeletionRow
 
-			if idRow.segId == wantSegId && idRow.recId < wantRecId {
-				r.seekIdIter(sp, wantRecId)
-				continue LOOP_IDITER
+				err := deletionRow.parseK(deletionRowKey)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 		LOOP_REC:
@@ -310,18 +307,23 @@ LOOP_SEG:
 				sp.nextRecIdx++
 
 				recId := sp.rowRecIds.recIds[recIdx]
-
-				if idRow.recId < recId {
-					r.seekIdIter(sp, recId)
-					continue LOOP_IDITER
+				if recId < wantRecId {
+					continue LOOP_REC
 				}
 
-				if idRow.recId > recId {
-					continue LOOP_REC // The rec was deleted.
+				if deletionRow != nil {
+					if deletionRow.recId < recId {
+						r.seekDeletionIter(sp, recId)
+						continue LOOP_DELETION
+					}
+
+					if deletionRow.recId == recId {
+						continue LOOP_REC // The rec was deleted.
+					}
 				}
 
-				// The idRow.recId == recId, so found a rec.
-				return r.prepareResultRec(sp, idRowKey, recIdx, preAlloced)
+				// The deletionRow is nil or is >= recId, so found a rec.
+				return r.prepareResultRec(sp, recIdx, recId, preAlloced)
 			}
 		}
 	}
@@ -332,33 +334,39 @@ LOOP_SEG:
 func (r *TermFieldReader) nextSegPostings(sp *segPostings) {
 	r.segPostingsArr = r.segPostingsArr[1:]
 
-	sp.idIter.Close()
-	sp.idIter = nil
+	sp.deletionIter.Close()
+	sp.deletionIter = nil
 }
 
-func (r *TermFieldReader) seekIdIter(sp *segPostings, recId uint64) {
-	idRow := &r.tmpIdRow
-	idRow.segId = sp.rowRecIds.segId
-	idRow.recId = recId
+func (r *TermFieldReader) seekDeletionIter(sp *segPostings, recId uint64) {
+	deletionRow := &r.tmpDeletionRow
+	deletionRow.segId = sp.rowRecIds.segId
+	deletionRow.recId = recId
 
-	if cap(r.keyBuf) < IdRowKeySize {
-		r.keyBuf = make([]byte, IdRowKeySize)
+	if cap(r.keyBuf) < DeletionRowKeySize {
+		r.keyBuf = make([]byte, DeletionRowKeySize)
 	}
-	keyBuf := r.keyBuf[:IdRowKeySize]
-	keyBufUsed, _ := idRow.KeyTo(keyBuf)
+	keyBuf := r.keyBuf[:DeletionRowKeySize]
+	keyBufUsed, _ := deletionRow.KeyTo(keyBuf)
 
-	sp.idIter.Seek(keyBuf[:keyBufUsed])
+	sp.deletionIter.Seek(keyBuf[:keyBufUsed])
 }
 
 func (r *TermFieldReader) prepareResultRec(sp *segPostings,
-	idRowKey []byte, recIdx int, preAlloced *index.TermFieldDoc) (
+	recIdx int, recId uint64, preAlloced *index.TermFieldDoc) (
 	*index.TermFieldDoc, error) {
 	rv := preAlloced
 	if rv == nil {
 		rv = &index.TermFieldDoc{}
 	}
 
-	rv.ID = append(rv.ID[:0], idRowKey[1:]...) // Strip off 1-byte prefix.
+	if cap(rv.ID) < 16 {
+		rv.ID = make([]byte, 16)
+	}
+	rv.ID = rv.ID[:16]
+
+	binary.LittleEndian.PutUint64(rv.ID[:8], sp.rowRecIds.segId)
+	binary.LittleEndian.PutUint64(rv.ID[8:], recId)
 
 	if r.includeFreq {
 		rv.Freq = uint64(sp.rowFreqNorms.Freq(recIdx))
