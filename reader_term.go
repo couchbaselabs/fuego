@@ -249,42 +249,50 @@ func (r *TermFieldReader) nextSegPostings() error {
 	}
 
 	r.postingsIter.Next()
-	k, v, valid = r.postingsIter.Current()
+	_, v, valid = r.postingsIter.Current()
 	if !valid {
 		return fmt.Errorf("expected postingFreqNormsRow")
 	}
 	if r.includeFreq || r.includeNorm {
 		rowFreqNorms := r.tmpSegPostings.rowFreqNorms
-		err = rowFreqNorms.parseK(k)
-		if err != nil {
-			return err
-		}
+
+		// NOTE: Key parse/check skipped since this is in a hot loop.
+		//
+		// err = rowFreqNorms.parseK(k)
+		// if err != nil {
+		//     return err
+		// }
+		// if rowFreqNorms.segId != rowRecIds.segId {
+		//     return fmt.Errorf("mismatched segId's for postingFreqNormsRow")
+		// }
+
 		err = rowFreqNorms.parseV(v)
 		if err != nil {
 			return err
 		}
-		if rowFreqNorms.segId != rowRecIds.segId {
-			return fmt.Errorf("mismatched segId's for postingFreqNormsRow")
-		}
 	}
 
 	r.postingsIter.Next()
-	k, v, valid = r.postingsIter.Current()
+	_, v, valid = r.postingsIter.Current()
 	if !valid {
 		return fmt.Errorf("expected postingVecsRow")
 	}
 	if r.includeTermVectors {
 		rowVecs := r.tmpSegPostings.rowVecs
-		err = rowVecs.parseK(k)
-		if err != nil {
-			return err
-		}
+
+		// NOTE: Key parse/check skipped since this is in a hot loop.
+		//
+		// err = rowVecs.parseK(k)
+		// if err != nil {
+		//     return err
+		// }
+		// if rowVecs.segId != rowRecIds.segId {
+		//     return fmt.Errorf("mismatched segId's for postingVecsRow")
+		// }
+
 		err = rowVecs.parseV(v)
 		if err != nil {
 			return err
-		}
-		if rowVecs.segId != rowRecIds.segId {
-			return fmt.Errorf("mismatched segId's for postingVecsRow")
 		}
 	}
 
