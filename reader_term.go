@@ -102,6 +102,11 @@ func newTermFieldReader(indexReader *IndexReader, term []byte, field uint16,
 		includeTermVectors: includeTermVectors,
 		postingsIter:       postingsIter,
 		keyBuf:             keyBuf,
+		tmpSegPostings: segPostings{
+			rowRecIds:    &PostingRecIdsRow{},
+			rowFreqNorms: &PostingFreqNormsRow{},
+			rowVecs:      &PostingVecsRow{},
+		},
 	}
 
 	err = rv.nextSegPostings()
@@ -240,14 +245,12 @@ func (r *TermFieldReader) nextSegPostings() error {
 	if !valid {
 		return nil
 	}
-	if r.tmpSegPostings.rowRecIds == nil {
-		r.tmpSegPostings.rowRecIds = &PostingRecIdsRow{}
-	}
-	err := r.tmpSegPostings.rowRecIds.parseK(k)
+	rowRecIds := r.tmpSegPostings.rowRecIds
+	err := rowRecIds.parseK(k)
 	if err != nil {
 		return err
 	}
-	err = r.tmpSegPostings.rowRecIds.parseV(v)
+	err = rowRecIds.parseV(v)
 	if err != nil {
 		return err
 	}
@@ -257,18 +260,16 @@ func (r *TermFieldReader) nextSegPostings() error {
 	if !valid {
 		return fmt.Errorf("expected postingFreqNormsRow")
 	}
-	if r.tmpSegPostings.rowFreqNorms == nil {
-		r.tmpSegPostings.rowFreqNorms = &PostingFreqNormsRow{}
-	}
-	err = r.tmpSegPostings.rowFreqNorms.parseK(k)
+	rowFreqNorms := r.tmpSegPostings.rowFreqNorms
+	err = rowFreqNorms.parseK(k)
 	if err != nil {
 		return err
 	}
-	err = r.tmpSegPostings.rowFreqNorms.parseV(v)
+	err = rowFreqNorms.parseV(v)
 	if err != nil {
 		return err
 	}
-	if r.tmpSegPostings.rowFreqNorms.segId != r.tmpSegPostings.rowRecIds.segId {
+	if rowFreqNorms.segId != rowRecIds.segId {
 		return fmt.Errorf("mismatched segId's for postingFreqNormsRow")
 	}
 
@@ -277,18 +278,19 @@ func (r *TermFieldReader) nextSegPostings() error {
 	if !valid {
 		return fmt.Errorf("expected postingVecsRow")
 	}
-	if r.tmpSegPostings.rowVecs == nil {
-		r.tmpSegPostings.rowVecs = &PostingVecsRow{}
+	rowVecs := r.tmpSegPostings.rowVecs
+	if rowVecs == nil {
+		rowVecs = &PostingVecsRow{}
 	}
-	err = r.tmpSegPostings.rowVecs.parseK(k)
+	err = rowVecs.parseK(k)
 	if err != nil {
 		return err
 	}
-	err = r.tmpSegPostings.rowVecs.parseV(v)
+	err = rowVecs.parseV(v)
 	if err != nil {
 		return err
 	}
-	if r.tmpSegPostings.rowVecs.segId != r.tmpSegPostings.rowRecIds.segId {
+	if rowVecs.segId != rowRecIds.segId {
 		return fmt.Errorf("mismatched segId's for postingVecsRow")
 	}
 
