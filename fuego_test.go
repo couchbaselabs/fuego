@@ -770,7 +770,11 @@ func TestIndexBatch(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	expectedDocIds := []index.IndexInternalID{index.IndexInternalID("2"), index.IndexInternalID("3")}
+
+	iid2, _ := indexReader.InternalID("2")
+	iid3, _ := indexReader.InternalID("3")
+
+	expectedDocIds := []index.IndexInternalID{iid2, iid3}
 	if !reflect.DeepEqual(docIds, expectedDocIds) {
 		t.Errorf("expected ids: %v, got ids: %v", expectedDocIds, docIds)
 	}

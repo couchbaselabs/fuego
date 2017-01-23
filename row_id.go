@@ -15,6 +15,7 @@
 package fuego
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -57,16 +58,36 @@ func (i *IndexReader) InternalID(docID string) (index.IndexInternalID, error) {
 	docIDBytes := []byte(docID)
 
 	backIndexRow, err := backIndexRowForDocID(i.kvreader, docIDBytes, nil)
-	if err != nil {
+	if err != nil || backIndexRow == nil {
 		return nil, err
 	}
 
+	return makeInternalID(backIndexRow.segId, backIndexRow.recId), nil
+}
+
+func makeInternalID(segId, recId uint64) index.IndexInternalID {
 	rv := make([]byte, 16)
 
-	binary.BigEndian.PutUint64(rv[:8], backIndexRow.segId)
-	binary.BigEndian.PutUint64(rv[8:], backIndexRow.recId)
+	binary.BigEndian.PutUint64(rv[:8], segId)
+	binary.BigEndian.PutUint64(rv[8:], recId)
 
-	return index.IndexInternalID(rv), nil
+	return index.IndexInternalID(rv)
+}
+
+// ------------------------------------------------------
+
+type internalIds []index.IndexInternalID
+
+func (a internalIds) Len() int {
+	return len(a)
+}
+
+func (a internalIds) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+
+func (a internalIds) Less(i, j int) bool {
+	return bytes.Compare(a[i], a[j]) < 0
 }
 
 // ------------------------------------------------------
@@ -78,6 +99,8 @@ func IdRowKeyPrefix(segId uint64, buf []byte) int {
 }
 
 var IdRowKeySize = 1 + 8 + 8
+
+var IdRowPrefix = []byte{'I'}
 
 // ------------------------------------------------------
 

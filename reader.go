@@ -58,11 +58,11 @@ func (i *IndexReader) FieldDictPrefix(fieldName string, termPrefix []byte) (
 }
 
 func (i *IndexReader) DocIDReaderAll() (index.DocIDReader, error) {
-	return newDocIDReader(i)
+	return newIdReader(i)
 }
 
 func (i *IndexReader) DocIDReaderOnly(docIDs []string) (index.DocIDReader, error) {
-	return newDocIDReaderOnly(i, docIDs)
+	return newIdSetReaderFromDocIDs(i, docIDs)
 }
 
 func (i *IndexReader) Document(docID string) (*document.Document, error) {

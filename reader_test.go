@@ -145,7 +145,8 @@ func TestIndexReader(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if !reflect.DeepEqual(expectedMatch, match) {
-		t.Errorf("got %#v, %#v, expected %#v, %#v", match, match.Vectors[0], expectedMatch, expectedMatch.Vectors[0])
+		t.Errorf("got %#v, %#v, expected %#v, %#v",
+			match, match.Vectors[0], expectedMatch, expectedMatch.Vectors[0])
 	}
 	err = reader.Close()
 	if err != nil {
@@ -239,7 +240,7 @@ func TestIndexDocIdReader(t *testing.T) {
 	}()
 
 	var expectedCount uint64
-	doc := document.NewDocument("1")
+	doc := document.NewDocument("22")
 	doc.AddField(document.NewTextField("name", []uint64{}, []byte("test")))
 	err = idx.Update(doc)
 	if err != nil {
@@ -247,7 +248,7 @@ func TestIndexDocIdReader(t *testing.T) {
 	}
 	expectedCount++
 
-	doc = document.NewDocument("2")
+	doc = document.NewDocument("33")
 	doc.AddField(document.NewTextField("name", []uint64{}, []byte("test test test")))
 	doc.AddField(document.NewTextFieldWithIndexingOptions("desc", []uint64{}, []byte("eat more rice"), document.IndexField|document.IncludeTermVectors))
 	err = idx.Update(doc)
@@ -289,7 +290,7 @@ func TestIndexDocIdReader(t *testing.T) {
 		t.Errorf("expected %d, got %d", expectedCount, count)
 	}
 
-	// try it again, but jump to the second doc this time
+	// try it again, but jump to the next doc this time
 	reader2, err := indexReader.DocIDReaderAll()
 	if err != nil {
 		t.Errorf("Error accessing doc id reader: %v", err)
@@ -301,20 +302,24 @@ func TestIndexDocIdReader(t *testing.T) {
 		}
 	}()
 
-	id, err = reader2.Advance(index.IndexInternalID("2"))
+	iid22, _ := indexReader.InternalID("22")
+
+	id, err = reader2.Advance(iid22)
 	if err != nil {
 		t.Error(err)
 	}
-	if !id.Equals(index.IndexInternalID("2")) {
-		t.Errorf("expected to find id '2', got '%s'", id)
+	if !id.Equals(iid22) {
+		t.Errorf("expected to find id '22' for %q, got '%s'", iid22, id)
 	}
 
-	id, err = reader2.Advance(index.IndexInternalID("3"))
+	iid1 := incrementBytes(iid22)
+
+	id, err = reader2.Advance(iid1)
 	if err != nil {
 		t.Error(err)
 	}
 	if id != nil {
-		t.Errorf("expected to find id '', got '%s'", id)
+		t.Errorf("expected to find id '', got '%q'", string(id))
 	}
 }
 
@@ -427,20 +432,24 @@ func TestIndexDocIdOnlyReader(t *testing.T) {
 		}
 	}()
 
-	id, err = reader2.Advance(index.IndexInternalID("5"))
+	iid5, _ := indexReader.InternalID("5")
+
+	id, err = reader2.Advance(iid5)
 	if err != nil {
 		t.Error(err)
 	}
-	if !id.Equals(index.IndexInternalID("5")) {
+	if !id.Equals(iid5) {
 		t.Errorf("expected to find id '5', got '%s'", id)
 	}
 
-	id, err = reader2.Advance(index.IndexInternalID("a"))
+	iid5[7] = 0xff // Advance really far.
+
+	id, err = reader2.Advance(iid5)
 	if err != nil {
 		t.Error(err)
 	}
 	if id != nil {
-		t.Errorf("expected to find id '', got '%s'", id)
+		t.Errorf("expected to find id '', got '%q'", id)
 	}
 
 	// some keys aren't actually there
@@ -466,6 +475,28 @@ func TestIndexDocIdOnlyReader(t *testing.T) {
 		t.Errorf("expected 1, got %d", count)
 	}
 
+	onlyIds = []string{"0", "1", "3", "5", "6", "9"}
+	reader4x, err := indexReader.DocIDReaderOnly(onlyIds)
+	if err != nil {
+		t.Errorf("Error accessing doc id reader: %v", err)
+	}
+	defer func() {
+		err := reader4x.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+
+	id, err = reader4x.Next()
+	count = uint64(0)
+	for id != nil {
+		count++
+		id, err = reader4x.Next()
+	}
+	if count != 4 {
+		t.Errorf("expected 4, got %d", count)
+	}
+
 	// mix advance and next
 	onlyIds = []string{"0", "1", "3", "5", "6", "9"}
 	reader4, err := indexReader.DocIDReaderOnly(onlyIds)
@@ -479,22 +510,25 @@ func TestIndexDocIdOnlyReader(t *testing.T) {
 		}
 	}()
 
-	// first key is "1"
+	// first key is "9", because it was inserted last
 	id, err = reader4.Next()
 	if err != nil {
 		t.Error(err)
 	}
-	if !id.Equals(index.IndexInternalID("1")) {
-		t.Errorf("expected to find id '1', got '%s'", id)
+	iid, _ := indexReader.InternalID("9")
+	if !id.Equals(iid) {
+		t.Errorf("expected to find id '%q', got '%q'", iid, id)
 	}
 
 	// advancing to key we dont have gives next
-	id, err = reader4.Advance(index.IndexInternalID("2"))
+	iid, _ = indexReader.InternalID("8")
+	id, err = reader4.Advance(iid)
 	if err != nil {
 		t.Error(err)
 	}
-	if !id.Equals(index.IndexInternalID("3")) {
-		t.Errorf("expected to find id '3', got '%s'", id)
+	iid, _ = indexReader.InternalID("5")
+	if !id.Equals(iid) {
+		t.Errorf("expected to find id '%q', got '%q'", iid, id)
 	}
 
 	// next after advance works
@@ -502,44 +536,48 @@ func TestIndexDocIdOnlyReader(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if !id.Equals(index.IndexInternalID("5")) {
-		t.Errorf("expected to find id '5', got '%s'", id)
+	iid, _ = indexReader.InternalID("3")
+	if !id.Equals(iid) {
+		t.Errorf("expected to find id '%q', got '%q'", iid, id)
 	}
 
 	// advancing to key we do have works
-	id, err = reader4.Advance(index.IndexInternalID("9"))
+	iid, _ = indexReader.InternalID("1")
+	id, err = reader4.Advance(iid)
 	if err != nil {
 		t.Error(err)
 	}
-	if !id.Equals(index.IndexInternalID("9")) {
-		t.Errorf("expected to find id '9', got '%s'", id)
+	if !id.Equals(iid) {
+		t.Errorf("expected to find id '%q', got '%q'", iid, id)
 	}
 
-	// advance backwards at end
-	id, err = reader4.Advance(index.IndexInternalID("4"))
+	// advance backwards at end to a previous (younger) key
+	iid, _ = indexReader.InternalID("5")
+	id, err = reader4.Advance(iid)
 	if err != nil {
 		t.Error(err)
 	}
-	if !id.Equals(index.IndexInternalID("5")) {
-		t.Errorf("expected to find id '5', got '%s'", id)
+	if !id.Equals(nil) {
+		t.Errorf("expected to find id '%q', got '%q'", nil, id)
 	}
 
-	// next after advance works
+	// next after last key gives nil
 	id, err = reader4.Next()
 	if err != nil {
 		t.Error(err)
 	}
-	if !id.Equals(index.IndexInternalID("9")) {
-		t.Errorf("expected to find id '9', got '%s'", id)
+	if !id.Equals(nil) {
+		t.Errorf("expected to find id '', got '%q'", id)
 	}
 
 	// advance backwards to key that exists, but not in only set
-	id, err = reader4.Advance(index.IndexInternalID("7"))
+	iid, _ = indexReader.InternalID("5")
+	id, err = reader4.Advance(iid)
 	if err != nil {
 		t.Error(err)
 	}
-	if !id.Equals(index.IndexInternalID("9")) {
-		t.Errorf("expected to find id '9', got '%s'", id)
+	if !id.Equals(nil) {
+		t.Errorf("expected to find id '', got '%q'", id)
 	}
 
 }
