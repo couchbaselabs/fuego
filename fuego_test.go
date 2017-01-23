@@ -774,9 +774,14 @@ func TestIndexBatch(t *testing.T) {
 	iid2, _ := indexReader.InternalID("2")
 	iid3, _ := indexReader.InternalID("3")
 
-	expectedDocIds := []index.IndexInternalID{iid2, iid3}
-	if !reflect.DeepEqual(docIds, expectedDocIds) {
-		t.Errorf("expected ids: %v, got ids: %v", expectedDocIds, docIds)
+	// This is due to the raciness of the analyzers returning
+	// results, where the winner gets the lower recId.
+	expectedDocIds23 := []index.IndexInternalID{iid2, iid3}
+	expectedDocIds32 := []index.IndexInternalID{iid3, iid2}
+	if !reflect.DeepEqual(docIds, expectedDocIds23) &&
+		!reflect.DeepEqual(docIds, expectedDocIds32) {
+		t.Errorf("expected ids: %v or %v, got ids: %v",
+			expectedDocIds23, expectedDocIds32, docIds)
 	}
 }
 

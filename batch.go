@@ -350,6 +350,8 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	atomic.AddUint64(&udc.stats.batches, 1)
 	atomic.AddUint64(&udc.stats.numPlainTextBytesIndexed, numPlainTextBytes)
 
+	udc.Cleaner(dictionaryDeltas)
+
 	return nil
 }
 
