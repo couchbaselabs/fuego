@@ -104,18 +104,15 @@ func (tfr *TermFrequencyRow) KeyAppendTo(buf []byte) ([]byte, error) {
 }
 
 func (tfr *TermFrequencyRow) DictionaryRowKey() []byte {
-	dr := NewDictionaryRow(tfr.term, tfr.field, 0)
-	return dr.Key()
+	return NewDictionaryRow(tfr.term, tfr.field, 0).Key()
 }
 
 func (tfr *TermFrequencyRow) DictionaryRowKeySize() int {
-	dr := NewDictionaryRow(tfr.term, tfr.field, 0)
-	return dr.KeySize()
+	return dictionaryRowKeySize(tfr.field, tfr.term)
 }
 
 func (tfr *TermFrequencyRow) DictionaryRowKeyTo(buf []byte) (int, error) {
-	dr := NewDictionaryRow(tfr.term, tfr.field, 0)
-	return dr.KeyTo(buf)
+	return dictionaryRowKeyTo(tfr.field, tfr.term, buf)
 }
 
 func (tfr *TermFrequencyRow) Value() []byte {
