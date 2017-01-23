@@ -60,14 +60,6 @@ func (p *PostingRecIdsRow) KeyTo(buf []byte) (int, error) {
 	return used, nil
 }
 
-func (p *PostingRecIdsRow) DictionaryRowKeySize() int {
-	return dictionaryRowKeySize(p.field, p.term)
-}
-
-func (p *PostingRecIdsRow) DictionaryRowKeyTo(buf []byte) (int, error) {
-	return dictionaryRowKeyTo(p.field, p.term, buf)
-}
-
 func (p *PostingRecIdsRow) Value() []byte {
 	buf := make([]byte, p.ValueSize())
 	size, _ := p.ValueTo(buf)
