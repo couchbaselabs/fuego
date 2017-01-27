@@ -128,12 +128,14 @@ func (udc *Fuego) loadStoreLOCKED(kvreader store.KVReader) error {
 	udc.summaryRow = sr
 
 	// load field rows
-	it := kvreader.PrefixIterator([]byte{'f'})
+	it := kvreader.PrefixIterator(FieldRowPrefix)
 	defer it.Close()
+
+	fieldRow := &FieldRow{}
 
 	k, v, valid := it.Current()
 	for valid {
-		fieldRow, err := NewFieldRowKV(k, v)
+		err := fieldRow.ParseKV(k, v)
 		if err != nil {
 			return err
 		}

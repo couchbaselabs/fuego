@@ -35,6 +35,10 @@ func (p *PostingFreqNormsRow) Norm(i int) float32 {
 	return math.Float32frombits(p.freqNorms[(i*2)+1])
 }
 
+func (p *PostingFreqNormsRow) NormEncoded(i int) uint32 {
+	return p.freqNorms[(i*2)+1]
+}
+
 func (p *PostingFreqNormsRow) Key() []byte {
 	buf := make([]byte, p.KeySize())
 	size, _ := p.KeyTo(buf)
@@ -70,7 +74,7 @@ func (p *PostingFreqNormsRow) ValueTo(buf []byte) (int, error) {
 		return 0, err
 	}
 	return copy(buf, bufRecIds), nil
-}
+ }
 
 func (p *PostingFreqNormsRow) String() string {
 	return fmt.Sprintf("Field: %d, Term: `%s`, len(freqNorms): %d",

@@ -64,6 +64,16 @@ type batchEntryTFR struct {
 // --------------------------------------------------
 
 func (udc *Fuego) Batch(batch *index.Batch) error {
+	segDirtiness, err := udc.batch(batch)
+	if err != nil {
+		return err
+	}
+
+	return udc.Cleaner(segDirtiness)
+}
+
+func (udc *Fuego) batch(batch *index.Batch) (
+	segDirtiness map[uint64]int64, err error) {
 	analysisStart := time.Now()
 
 	analyzeResultCh := make(chan *AnalyzeAuxResult, len(batch.IndexOps))
@@ -128,8 +138,8 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	currSegId := udc.summaryRow.LastUsedSegId
 
 	// Wait for analyze results.
-	batchEntriesPre := make([]batchEntry, len(batch.IndexOps))           // Prealloc'ed.
-	batchEntriesArr := make(batchEntries, 0, len(batch.IndexOps))        // Sorted by docID.
+	batchEntriesPre := make([]batchEntry, len(batch.IndexOps)) // Prealloc'ed.
+	batchEntriesArr := make(batchEntries, 0, len(batch.IndexOps))
 	batchEntriesMap := make(map[string]*batchEntry, len(batch.IndexOps)) // Keyed by docID.
 
 	var numBatchEntries int
@@ -153,9 +163,9 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	close(analyzeResultCh)
 
 	// NOTE: We might consider sorting the batchEntriesArr by docID,
-	// ASC, in order to have the recId's also have the same sorted
-	// ordering as docID's, but we'll skip this for now until we
-	// figure out if there's a performance win.
+	// ASC, in order to assign the recId's is the same sorted ordering
+	// as docID's, but we'll skip this for now until we figure out if
+	// there's a performance win.
 	//   sort.Sort(batchEntriesArr)
 
 	atomic.AddUint64(&udc.stats.analysisTime, uint64(time.Since(analysisStart)))
@@ -270,7 +280,10 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	docsAdded := uint64(0)
 	docsDeleted := uint64(0)
 
-	dictionaryDeltas := make(map[string]int64)
+	dictionaryDeltas := make(map[string]int64) // Keyed by dictionaryRow key.
+
+	segDirtiness = map[uint64]int64{} // Keyed by segId.
+	segDirtiness[currSegId] += 0 // Ensure an entry for currSegId.
 
 	addRows = []KVRow(nil)
 
@@ -283,6 +296,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 					NewDeletionRow(dbir.backIndexRow.segId, dbir.backIndexRow.recId))
 
 				var deleteRows []KVRow
+
 				deleteRows, keyBuf = udc.deleteSingle(
 					dbir.docIDBytes, dbir.backIndexRow, dictionaryDeltas, keyBuf)
 				if len(deleteRows) > 0 {
@@ -293,8 +307,10 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 			}
 		} else {
 			var aRows, uRows, dRows []KVRow
+
 			aRows, uRows, dRows, keyBuf = udc.mergeOldAndNew(currSegId,
-				dbir.backIndexRow, batchEntriesMap[dbir.docID], dictionaryDeltas, keyBuf)
+				dbir.backIndexRow, batchEntriesMap[dbir.docID],
+				dictionaryDeltas, keyBuf)
 			if len(aRows) > 0 {
 				addRowsAll = append(addRowsAll, aRows)
 			}
@@ -304,7 +320,10 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 			if len(dRows) > 0 {
 				deleteRowsAll = append(deleteRowsAll, dRows)
 			}
-			if dbir.backIndexRow == nil {
+
+			if dbir.backIndexRow != nil {
+				segDirtiness[dbir.backIndexRow.segId] += 1
+			} else {
 				docsAdded++
 			}
 		}
@@ -313,7 +332,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	PutRowBuffer(keyBuf)
 
 	if docBackIndexRowErr != nil {
-		return docBackIndexRowErr
+		return nil, docBackIndexRowErr
 	}
 
 	if len(addRows) > 0 {
@@ -323,7 +342,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	// start a writer for this batch
 	kvwriter, err := udc.store.Writer()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = udc.batchRows(kvwriter, addRowsAll, updateRowsAll, deleteRowsAll, dictionaryDeltas)
@@ -337,7 +356,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 
 	if err != nil {
 		atomic.AddUint64(&udc.stats.errors, 1)
-		return err
+		return nil, err
 	}
 
 	udc.m.Lock()
@@ -350,9 +369,7 @@ func (udc *Fuego) Batch(batch *index.Batch) error {
 	atomic.AddUint64(&udc.stats.batches, 1)
 	atomic.AddUint64(&udc.stats.numPlainTextBytesIndexed, numPlainTextBytes)
 
-	udc.Cleaner(dictionaryDeltas)
-
-	return nil
+	return segDirtiness, nil
 }
 
 func (udc *Fuego) deleteSingle(idBytes []byte, backIndexRow *BackIndexRow,

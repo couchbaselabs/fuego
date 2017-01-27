@@ -28,7 +28,7 @@ import (
 	regexpTokenizer "github.com/blevesearch/bleve/analysis/tokenizer/regexp"
 	"github.com/blevesearch/bleve/document"
 	"github.com/blevesearch/bleve/index"
-	"github.com/blevesearch/bleve/index/store/boltdb"
+	"github.com/blevesearch/bleve/index/store/moss"
 	"github.com/blevesearch/bleve/index/store/null"
 	"github.com/blevesearch/bleve/registry"
 )
@@ -46,7 +46,7 @@ func TestIndexOpenReopen(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestIndexOpenReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	idx, err = NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err = NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestIndexInsert(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestIndexInsertThenDelete(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +395,7 @@ func TestIndexInsertMultiple(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestIndexInsertMultiple(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	idx, err = NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err = NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ func TestIndexInsertWithStore(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +590,7 @@ func TestIndexInternalCRUD(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +684,7 @@ func TestIndexBatch(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -794,7 +794,7 @@ func TestIndexInsertUpdateDeleteWithMultipleTypesStored(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1013,7 +1013,7 @@ func TestIndexInsertFields(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1072,7 +1072,7 @@ func TestIndexUpdateComposites(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1170,7 +1170,7 @@ func TestIndexFieldsMisc(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1217,7 +1217,7 @@ func TestIndexTermReaderCompositeFields(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1283,7 +1283,7 @@ func TestIndexDocumentFieldTerms(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1380,7 +1380,7 @@ func TestConcurrentUpdate(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1436,7 +1436,7 @@ func TestLargeField(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}

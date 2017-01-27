@@ -53,7 +53,7 @@ Also, additional, persisted KV rows introduced by fuego would be...
       A docID is a fixed length uint64 (not varint encoded).
 
     postings
-      <postings>:fieldId:'lazy':0xff:segId:<recIds> -> [recId1, recId2, recId3]
+      <postings>:fieldId:'lazy':0xff:segId:<recIds> -> [recId1, recId2, recId33]
       <postings>:fieldId:'lazy':0xff:segId:<fieldNorms> -> [0, 1, 2]
       <postings>:fieldId:'lazy':0xff:segId:>positions> -> [[], [], []]
 

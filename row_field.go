@@ -15,10 +15,13 @@
 package fuego
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 )
+
+var FieldRowPrefix0 = uint8('f')
+
+var FieldRowPrefix = []byte{FieldRowPrefix0}
 
 type FieldRow struct {
 	index uint16
@@ -36,7 +39,7 @@ func (f *FieldRow) KeySize() int {
 }
 
 func (f *FieldRow) KeyTo(buf []byte) (int, error) {
-	buf[0] = 'f'
+	buf[0] = FieldRowPrefix0
 	binary.LittleEndian.PutUint16(buf[1:3], f.index)
 	return 3, nil
 }
@@ -67,24 +70,19 @@ func NewFieldRow(index uint16, name string) *FieldRow {
 }
 
 func NewFieldRowKV(key, value []byte) (*FieldRow, error) {
-	rv := FieldRow{}
+	rv := &FieldRow{}
 
-	buf := bytes.NewBuffer(key)
-	_, err := buf.ReadByte() // type
-	if err != nil {
-		return nil, err
-	}
-	err = binary.Read(buf, binary.LittleEndian, &rv.index)
+	err := rv.ParseKV(key, value)
 	if err != nil {
 		return nil, err
 	}
 
-	buf = bytes.NewBuffer(value)
-	rv.name, err = buf.ReadString(ByteSeparator)
-	if err != nil {
-		return nil, err
-	}
-	rv.name = rv.name[:len(rv.name)-1] // trim off separator byte
+	return rv, nil
+}
 
-	return &rv, nil
+func (f *FieldRow) ParseKV(key, value []byte) (err error) {
+	f.index = binary.LittleEndian.Uint16(key[1:])
+	f.name = string(value[:len(value)-1])
+
+	return nil
 }

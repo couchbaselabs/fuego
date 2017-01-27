@@ -44,6 +44,8 @@ type Fuego struct {
 	docCount uint64
 
 	writeMutex sync.Mutex
+
+	segDirtiness map[uint64]int64
 }
 
 func NewFuego(storeName string, storeConfig map[string]interface{},
@@ -55,6 +57,7 @@ func NewFuego(storeName string, storeConfig map[string]interface{},
 		storeConfig:   storeConfig,
 		analysisQueue: analysisQueue,
 		summaryRow:    NewSummaryRow(math.MaxUint64),
+		segDirtiness:  map[uint64]int64{},
 	}
 	rv.stats = &indexStat{i: rv}
 	return rv, nil

@@ -19,17 +19,26 @@ import (
 	"fmt"
 )
 
-func PostingRowKeySize(term []byte) int {
-	return 1 + 2 + len(term) + 1 + 8 + 1
+const PostingRowKeyPrefix0 = uint8('P')
+
+const PostingRowKeyFieldSize = 3
+
+func PostingRowKeyFieldPrefix(field uint16, buf []byte) int {
+	buf[0] = PostingRowKeyPrefix0
+	binary.LittleEndian.PutUint16(buf[1:3], field)
+	return PostingRowKeyFieldSize
 }
 
 func PostingRowKeyPrefix(field uint16, term []byte, buf []byte) int {
-	buf[0] = 'P'
-	binary.LittleEndian.PutUint16(buf[1:3], field)
-	used := 3 + copy(buf[3:], term)
+	used := PostingRowKeyFieldPrefix(field, buf)
+	used += copy(buf[used:], term)
 	buf[used] = ByteSeparator
 	used += 1
 	return used
+}
+
+func PostingRowKeySize(term []byte) int {
+	return PostingRowKeyFieldSize + len(term) + 1 + 8 + 1
 }
 
 // --------------------------------------------------

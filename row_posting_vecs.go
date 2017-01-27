@@ -27,7 +27,7 @@ type PostingVecsRow struct {
 	segId uint64
 
 	// The encoded has the rec's encoded as...
-	// - numRecs (uint32).
+	// - numRecs (uint32). // TODO: This should be uint64?
 	// - recOffsets, an array of numRecs # of uint32's,
 	//     which are zero-based indexes into the recParts array
 	//     where each rec starts.
@@ -55,16 +55,9 @@ type PostingVecsRow struct {
 func (p *PostingVecsRow) TermFieldVectors(i int,
 	fieldCache *index.FieldCache, prealloc []*index.TermFieldVector) (
 	[]*index.TermFieldVector, error) {
-	if len(p.encoded) <= 0 {
-		return nil, nil
-	}
-
-	numRecs := int(p.encoded[0])
-	recOffset := int(p.encoded[1+i])
-	rec := p.encoded[1+numRecs+recOffset:]
-	if i+1 < numRecs {
-		recLen := int(p.encoded[1+i+1]) - recOffset
-		rec = rec[:recLen]
+	rec, err := p.TermFieldVectorsEncoded(i)
+	if err != nil || rec == nil {
+		return nil, err
 	}
 
 	numVecs := int(rec[0])
@@ -117,6 +110,23 @@ func (p *PostingVecsRow) TermFieldVectors(i int,
 	}
 
 	return rv, nil
+}
+
+func (p *PostingVecsRow) TermFieldVectorsEncoded(i int) ([]uint32, error) {
+	if len(p.encoded) <= 0 {
+		return nil, nil
+	}
+
+	numRecs := int(p.encoded[0])
+	recOffset := int(p.encoded[1+i])
+
+	rec := p.encoded[1+numRecs+recOffset:]
+	if i+1 < numRecs {
+		recLen := int(p.encoded[1+i+1]) - recOffset
+		rec = rec[:recLen]
+	}
+
+	return rec, nil
 }
 
 func (p *PostingVecsRow) Key() []byte {

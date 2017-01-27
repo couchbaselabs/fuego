@@ -27,8 +27,10 @@ type IndexReader struct {
 }
 
 func (i *IndexReader) TermFieldReader(term []byte, fieldName string,
-	includeFreq, includeNorm, includeTermVectors bool) (index.TermFieldReader, error) {
-	fieldIndex, fieldExists := i.index.fieldCache.FieldNamed(fieldName, false)
+	includeFreq, includeNorm, includeTermVectors bool) (
+	index.TermFieldReader, error) {
+	fieldIndex, fieldExists :=
+		i.index.fieldCache.FieldNamed(fieldName, false)
 	if fieldExists {
 		return newTermFieldReader(i, term, uint16(fieldIndex),
 			includeFreq, includeNorm, includeTermVectors)
@@ -38,13 +40,16 @@ func (i *IndexReader) TermFieldReader(term []byte, fieldName string,
 		includeFreq, includeNorm, includeTermVectors)
 }
 
-func (i *IndexReader) FieldDict(fieldName string) (index.FieldDict, error) {
+func (i *IndexReader) FieldDict(fieldName string) (
+	index.FieldDict, error) {
 	return i.FieldDictRange(fieldName, nil, nil)
 }
 
-func (i *IndexReader) FieldDictRange(fieldName string, startTerm []byte, endTerm []byte) (
+func (i *IndexReader) FieldDictRange(fieldName string,
+	startTerm []byte, endTerm []byte) (
 	index.FieldDict, error) {
-	fieldIndex, fieldExists := i.index.fieldCache.FieldNamed(fieldName, false)
+	fieldIndex, fieldExists :=
+		i.index.fieldCache.FieldNamed(fieldName, false)
 	if fieldExists {
 		return newFieldDict(i, uint16(fieldIndex), startTerm, endTerm)
 	}
@@ -61,7 +66,8 @@ func (i *IndexReader) DocIDReaderAll() (index.DocIDReader, error) {
 	return newIdReader(i)
 }
 
-func (i *IndexReader) DocIDReaderOnly(docIDs []string) (index.DocIDReader, error) {
+func (i *IndexReader) DocIDReaderOnly(docIDs []string) (
+	index.DocIDReader, error) {
 	return newIdSetReaderFromDocIDs(i, docIDs)
 }
 
@@ -69,7 +75,8 @@ func (i *IndexReader) Document(docID string) (*document.Document, error) {
 	docIDBytes := []byte(docID)
 
 	// first hit the back index to confirm doc exists
-	backIndexRow, err := backIndexRowForDocID(i.kvreader, docIDBytes, nil)
+	backIndexRow, err :=
+		backIndexRowForDocID(i.kvreader, docIDBytes, nil)
 	if err != nil || backIndexRow == nil {
 		return nil, err
 	}

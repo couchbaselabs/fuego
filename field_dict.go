@@ -16,6 +16,7 @@ package fuego
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/blevesearch/bleve/index"
 	"github.com/blevesearch/bleve/index/store"
@@ -29,7 +30,8 @@ type FieldDict struct {
 	field       uint16
 }
 
-func newFieldDict(indexReader *IndexReader, field uint16, startTerm, endTerm []byte) (*FieldDict, error) {
+func newFieldDict(indexReader *IndexReader, field uint16,
+	startTerm, endTerm []byte) (*FieldDict, error) {
 	startKey := NewDictionaryRow(startTerm, field, 0).Key()
 
 	if endTerm == nil {
@@ -59,18 +61,17 @@ func (r *FieldDict) Next() (*index.DictEntry, error) {
 
 	err := r.dictRow.parseDictionaryK(key)
 	if err != nil {
-		return nil, fmt.Errorf("unexpected error parsing dictionary row key: %v", err)
+		return nil, fmt.Errorf("error parsing dictionary row key: %v", err)
 	}
 
 	err = r.dictRow.parseDictionaryV(val)
 	if err != nil {
-		return nil, fmt.Errorf("unexpected error parsing dictionary row val: %v", err)
+		return nil, fmt.Errorf("error parsing dictionary row val: %v", err)
 	}
 
 	r.dictEntry.Term = string(r.dictRow.term)
 	r.dictEntry.Count = r.dictRow.count
 
-	// advance the iterator to the next term
 	r.iterator.Next()
 
 	return r.dictEntry, nil
@@ -79,4 +80,44 @@ func (r *FieldDict) Next() (*index.DictEntry, error) {
 
 func (r *FieldDict) Close() error {
 	return r.iterator.Close()
+}
+
+// -------------------------------------------------
+
+// The returned fieldIds are already sorted ASC.
+func (udc *Fuego) LoadFieldIds(kvreader store.KVReader) (fieldIds uint16s, err error) {
+	// TODO: Replace the FieldRow iterator by instead accessing the
+	// index.FieldCache, which doesn't currently have a public API to
+	// grab all the fieldId's.
+	if kvreader == nil {
+		kvreader, err = udc.store.Reader()
+		if err != nil {
+			return nil, err
+		}
+		defer kvreader.Close()
+	}
+
+	fieldRow := FieldRow{}
+
+	it := kvreader.PrefixIterator(FieldRowPrefix)
+
+	k, v, valid := it.Current()
+	for valid {
+		err := fieldRow.ParseKV(k, v)
+		if err != nil {
+			it.Close()
+			return nil, err
+		}
+
+		fieldIds = append(fieldIds, fieldRow.index)
+
+		it.Next()
+		k, v, valid = it.Current()
+	}
+
+	it.Close()
+
+	sort.Sort(fieldIds)
+
+	return fieldIds, nil
 }

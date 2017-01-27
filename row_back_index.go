@@ -172,20 +172,24 @@ func backIndexRowForDocID(kvreader store.KVReader, docIDBytes []byte,
 	if tmpRow.KeySize() > len(keyBuf) {
 		keyBuf = make([]byte, 2*tmpRow.KeySize())
 	}
-	defer PutRowBuffer(keyBuf)
 
 	keySize, err := tmpRow.KeyTo(keyBuf)
 	if err != nil {
+		PutRowBuffer(keyBuf)
 		return nil, err
 	}
 
 	value, err := kvreader.Get(keyBuf[:keySize])
 	if err != nil {
+		PutRowBuffer(keyBuf)
 		return nil, err
 	}
 	if value == nil {
+		PutRowBuffer(keyBuf)
 		return nil, nil
 	}
 
-	return NewBackIndexRowKV(keyBuf[:keySize], value)
+	rv, err := NewBackIndexRowKV(keyBuf[:keySize], value)
+	PutRowBuffer(keyBuf)
+	return rv, err
 }
