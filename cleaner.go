@@ -24,8 +24,11 @@ import (
 
 var MinSegDirtiness = int64(4) // TODO: Pick better MinSegDirtiness.
 
-// Max number of segs to clean concurrently.
-var MaxConcurrentSegsToClean = 4 // TODO: Pick better MaxConcurrentSegsToClean.
+// Min number of segs before cleaning is attempted.
+var MinSegsToClean = 2 // TODO: Pick better MinSegsToClean.
+
+// Max number of segs to clean during one cleaning cycle.
+var MaxSegsToClean = 4 // TODO: Pick better MaxSegsToClean.
 
 // The segDirtinessIncoming tells us which seg's recently had changes.
 func (udc *Fuego) Cleaner(segDirtinessIncoming map[uint64]int64) error {
@@ -56,7 +59,7 @@ func (udc *Fuego) CleanerLOCKED() error {
 	}
 
 	onlySegIds, err := udc.FindSegsToCleanLOCKED()
-	if err != nil {
+	if err != nil || onlySegIds == nil {
 		return err
 	}
 
@@ -108,12 +111,17 @@ func (udc *Fuego) FindSegsToCleanLOCKED() (map[uint64]struct{}, error) {
 	// Concatenate so dirty segId's come before the dusty segId's.
 	candidateSegIds := append(dirtySegIds, dustySegIds...)
 
+	// Check if not enough segs to clean.
+	if len(candidateSegIds) < MinSegsToClean {
+		return nil, nil
+	}
+
 	// Don't clean too many segs at once.
 	//
 	// TODO: Have a better, more dynamic policy than this.
 	//
-	if len(candidateSegIds) > MaxConcurrentSegsToClean {
-		candidateSegIds = candidateSegIds[:MaxConcurrentSegsToClean]
+	if len(candidateSegIds) > MaxSegsToClean {
+		candidateSegIds = candidateSegIds[:MaxSegsToClean]
 	}
 
 	onlySegIds := map[uint64]struct{}{}
