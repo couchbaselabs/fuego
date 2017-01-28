@@ -90,12 +90,7 @@ func (udc *Fuego) Open() error {
 }
 
 func (udc *Fuego) initStoreLOCKED(kvwriter store.KVWriter) error {
-	rowsAll := [][]KVRow{
-		{
-			NewVersionRow(udc.version),
-			udc.summaryRow,
-		},
-	}
+	rowsAll := [][]KVRow{[]KVRow{NewVersionRow(udc.version)}}
 
 	return udc.batchRows(kvwriter, nil, rowsAll, nil, nil)
 }
@@ -113,19 +108,6 @@ func (udc *Fuego) loadStoreLOCKED(kvreader store.KVReader) error {
 	if vr.version != Version {
 		return IncompatibleVersion
 	}
-
-	// load summary row
-	val, err = kvreader.Get(SummaryKey)
-	if err != nil {
-		return err
-	}
-
-	sr, err := NewSummaryRowKV(SummaryKey, val)
-	if err != nil {
-		return err
-	}
-
-	udc.summaryRow = sr
 
 	// load field rows
 	it := kvreader.PrefixIterator(FieldRowPrefix)
@@ -150,16 +132,27 @@ func (udc *Fuego) loadStoreLOCKED(kvreader store.KVReader) error {
 }
 
 func (udc *Fuego) countDocs(kvreader store.KVReader) (uint64, error) {
-	it := kvreader.PrefixIterator([]byte{'b'})
+	it := kvreader.PrefixIterator([]byte{'I'})
 	defer it.Close()
 
 	var count uint64
 
-	_, _, valid := it.Current()
+	var idRow IdRow
+
+	k, _, valid := it.Current()
 	for valid {
+		idRow.parseK(k)
+
+		if udc.lastUsedSegId > idRow.segId {
+			udc.lastUsedSegId = idRow.segId
+		}
+
+		udc.segDirtiness[idRow.segId] = 0 // Mark seg's existence.
+
 		count++
+
 		it.Next()
-		_, _, valid = it.Current()
+		k, _, valid = it.Current()
 	}
 
 	return count, nil

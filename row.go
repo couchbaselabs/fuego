@@ -62,8 +62,6 @@ func ParseFromKeyValue(key, value []byte) (KVRow, error) {
 			return NewVersionRowKV(key, value)
 		case 'x':
 			return NewDeletionRowKV(key, value)
-		case 'z':
-			return NewSummaryRowKV(key, value)
 		}
 		return nil, fmt.Errorf("Unknown row type '%s'", string(key[0]))
 	}

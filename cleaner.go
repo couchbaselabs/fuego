@@ -43,7 +43,6 @@ func (udc *Fuego) Cleaner(segDirtinessIncoming map[uint64]int64) error {
 	return err
 }
 
-// The segDirtinessIncoming tells us which seg's recently had changes.
 func (udc *Fuego) CleanerLOCKED() error {
 	kvreader, err := udc.store.Reader()
 	if err != nil {
@@ -61,9 +60,9 @@ func (udc *Fuego) CleanerLOCKED() error {
 		return err
 	}
 
-	udc.summaryRow.LastUsedSegId = udc.summaryRow.LastUsedSegId - 1
+	udc.lastUsedSegId = udc.lastUsedSegId - 1
 
-	currSegId := udc.summaryRow.LastUsedSegId
+	currSegId := udc.lastUsedSegId
 
 	addRowsAll, updateRowsAll, deleteRowsAll, err :=
 		udc.CleanFieldsLOCKED(kvreader, fieldIds, onlySegIds, currSegId)
@@ -71,16 +70,21 @@ func (udc *Fuego) CleanerLOCKED() error {
 		return err
 	}
 
-	updateRowsAll = append(updateRowsAll, []KVRow{NewSummaryRow(currSegId)})
-
 	// start a writer for this batch
 	kvwriter, err := udc.store.Writer()
 	if err != nil {
 		return err
 	}
-	defer kvwriter.Close()
 
-	return udc.batchRows(kvwriter, addRowsAll, updateRowsAll, deleteRowsAll, nil)
+	udc.Logf(" batchRows, addRowsAll: %#v\n", addRowsAll)
+	udc.Logf(" batchRows, updateRowsAll: %#v\n", updateRowsAll)
+	udc.Logf(" batchRows, deleteRowsAll: %#v\n", deleteRowsAll)
+
+	err = udc.batchRows(kvwriter, addRowsAll, updateRowsAll, deleteRowsAll, nil)
+
+	kvwriter.Close()
+
+	return err
 }
 
 func (udc *Fuego) FindSegsToCleanLOCKED() (map[uint64]struct{}, error) {
@@ -126,6 +130,9 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 	updateRowsAll [][]KVRow,
 	deleteRowsAll [][]KVRow,
 	err error) {
+	udc.Logf("CleanFieldsLOCKED, fieldIds: %#v, onlySegIds: %#v, currSegId: %x\n",
+		fieldIds, onlySegIds, currSegId)
+
 	buf := GetRowBuffer()
 
 	segVisitor := &segVisitor{
@@ -143,42 +150,47 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 
 	var nextRecId uint64 = uint64(1)
 
-	var recIdsNewSeg [][]uint64
-	var freqNormsNewSeg [][]uint32
-	var vectorsNewSeg [][][]uint32
+	var recIdsNewPosting [][]uint64
+	var freqNormsNewPosting [][]uint32
+	var vectorsNewPosting [][][]uint32
 
 	var recIdsCur []uint64
 	var freqNormsCur []uint32
 	var vectorsCur [][]uint32
 
 	// If the fieldId or term has changed, then flushFieldTerm()
-	// appends the collected "NewSeg" info into a new triplet of
+	// appends the collected "NewPosting" info into a new triplet of
 	// posting rows in addRowsAll.
 	flushFieldTerm := func(fieldId uint16, term []byte) {
 		if currFieldId != fieldId || !bytes.Equal(currTerm, term) {
 			if nextRecId > 1 {
-				numRecs := int(nextRecId)
+				numRecs := int(nextRecId) - 1
+
+				udc.Logf("  flushing newPosting, currFieldId: %d, currTerm: %s, numRecs: %d,"+
+					" recIdsNewPosting: %#v, freqNormsNewPosting: %#v, vectorsNewPosting: %#v\n",
+					currFieldId, currTerm, numRecs,
+					recIdsNewPosting, freqNormsNewPosting, vectorsNewPosting)
 
 				recIdsFlat := make([]uint64, 0, numRecs)
-				for _, recIds := range recIdsNewSeg {
+				for _, recIds := range recIdsNewPosting {
 					recIdsFlat = append(recIdsFlat, recIds...)
 				}
-				recIdsNewSeg = nil
+				recIdsNewPosting = nil
 
-				freqNormsFlat := make([]uint32, 0, numRecs * 2)
-				for _, freqNorms := range freqNormsNewSeg {
+				freqNormsFlat := make([]uint32, 0, numRecs*2)
+				for _, freqNorms := range freqNormsNewPosting {
 					freqNormsFlat = append(freqNormsFlat, freqNorms...)
 				}
-				freqNormsNewSeg = nil
+				freqNormsNewPosting = nil
 
 				lenVectors := 0
-				for _, vectorsFromOldSeg := range vectorsNewSeg {
+				for _, vectorsFromOldSeg := range vectorsNewPosting {
 					for _, vectors := range vectorsFromOldSeg {
 						lenVectors += len(vectors)
 					}
 				}
 
-				vectorsEncoded := make([]uint32, 1 + numRecs + lenVectors)
+				vectorsEncoded := make([]uint32, 1+numRecs+lenVectors)
 
 				vectorsEncoded[0] = uint32(numRecs)
 
@@ -186,13 +198,13 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 				parts := vectorsEncoded[1+numRecs:]
 				partsUsed := 0
 
-				for i, vectorsFromOldSeg := range vectorsNewSeg {
+				for i, vectorsFromOldSeg := range vectorsNewPosting {
 					for _, vectors := range vectorsFromOldSeg {
 						partOffsets[i] = uint32(partsUsed)
 						partsUsed += copy(parts[partsUsed:], vectors)
 					}
 				}
-				vectorsNewSeg = nil
+				vectorsNewPosting = nil
 
 				addRowsAll = append(addRowsAll, []KVRow{
 					NewPostingRecIdsRow(
@@ -219,7 +231,7 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 	// "Cur" info.
 	//
 	// When visitor sees a field/term/segId ended, append the
-	// collected "Cur" info to the "NewSeg" info.
+	// collected "Cur" info to the "NewPosting" info.
 	//
 	// When visitor sees a field/term ended, call flushFieldTerm()
 	visitor := func(fieldId uint16, term []byte,
@@ -227,6 +239,9 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 		recIdx int, recId uint64, alive bool) (
 		keepGoing bool, err error) {
 		if recIdx >= 0 {
+			udc.Logf("  visitor, fieldId: %d, term: %s, segId: %x, recIdx: %d, recId: %x, alive: %t\n",
+				fieldId, term, segId, recIdx, recId, alive)
+
 			if alive {
 				// Retrieve the id lookup row.
 				idRow := NewIdRow(segId, recId, nil)
@@ -248,6 +263,9 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 					if err != nil {
 						return false, err
 					}
+
+					udc.Logf("   backIndexRow: #%v, docIDBytes: %s\n",
+						backIndexRow, docIDBytes)
 
 					if backIndexRow != nil {
 						backIndexRow.segId = currSegId
@@ -273,6 +291,9 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 
 						vectorsCur = append(vectorsCur, vectorsEncoded)
 
+						udc.Logf("    nextRecId: %x, recIdsCur: %#v, freqNormsCur: %#v, vectorsCur: %#v\n",
+							nextRecId, recIdsCur, freqNormsCur, vectorsCur)
+
 						nextRecId += 1
 					}
 				}
@@ -281,6 +302,9 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 					[]KVRow{NewDeletionRow(segId, recId)})
 			}
 		} else {
+			udc.Logf(" visitor, fieldId: %d, term: %s, segId: %x, alive: %t\n",
+				fieldId, term, segId, alive)
+
 			if alive { // Started a new field/term/segId.
 				flushFieldTerm(fieldId, term)
 
@@ -295,9 +319,12 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 				})
 			} else { // Ended a new field/term/segId.
 				if len(recIdsCur) > 0 {
-					recIdsNewSeg = append(recIdsNewSeg, recIdsCur)
-					freqNormsNewSeg = append(freqNormsNewSeg, freqNormsCur)
-					vectorsNewSeg = append(vectorsNewSeg, vectorsCur)
+					udc.Logf("  ending cur, recIdsCur: %#v, freqNormsCur: %#v, vectorsCur: %#v\n",
+						recIdsCur, freqNormsCur, vectorsCur)
+
+					recIdsNewPosting = append(recIdsNewPosting, recIdsCur)
+					freqNormsNewPosting = append(freqNormsNewPosting, freqNormsCur)
+					vectorsNewPosting = append(vectorsNewPosting, vectorsCur)
 
 					recIdsCur = nil
 					freqNormsCur = nil
@@ -316,12 +343,6 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 		}
 
 		flushFieldTerm(0xffff, nil)
-	}
-
-	if len(recIdsCur) > 0 {
-		recIdsNewSeg = append(recIdsNewSeg, recIdsCur)
-		freqNormsNewSeg = append(freqNormsNewSeg, freqNormsCur)
-		vectorsNewSeg = append(vectorsNewSeg, vectorsCur)
 	}
 
 	segVisitor.Reset()

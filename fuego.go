@@ -36,10 +36,11 @@ type Fuego struct {
 	fieldCache    *index.FieldCache
 	analysisQueue *index.AnalysisQueue
 	stats         *indexStat
+	verbose       int
 
 	m sync.RWMutex // Protects the fields that follow.
 
-	summaryRow *SummaryRow
+	lastUsedSegId uint64
 
 	docCount uint64
 
@@ -56,11 +57,20 @@ func NewFuego(storeName string, storeConfig map[string]interface{},
 		storeName:     storeName,
 		storeConfig:   storeConfig,
 		analysisQueue: analysisQueue,
-		summaryRow:    NewSummaryRow(math.MaxUint64),
+		lastUsedSegId: math.MaxUint64,
 		segDirtiness:  map[uint64]int64{},
+		verbose:       3,
 	}
 	rv.stats = &indexStat{i: rv}
 	return rv, nil
+}
+
+func (udc *Fuego) Logf(format string, a ...interface{}) (n int, err error) {
+	if udc.verbose > 0 && udc.verbose-1 < len(format) && format[udc.verbose-1] != ' ' {
+		return fmt.Printf(format, a...)
+	}
+
+	return 0, nil
 }
 
 func (udc *Fuego) Reader() (index.IndexReader, error) {

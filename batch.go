@@ -133,9 +133,9 @@ func (udc *Fuego) batch(batch *index.Batch) (
 
 	// The segId's decrease or drop downwards from MAX_UINT64,
 	// which allows newer/younger seg's to appear first in iterators.
-	udc.summaryRow.LastUsedSegId = udc.summaryRow.LastUsedSegId - 1
+	udc.lastUsedSegId = udc.lastUsedSegId - 1
 
-	currSegId := udc.summaryRow.LastUsedSegId
+	currSegId := udc.lastUsedSegId
 
 	// Wait for analyze results.
 	batchEntriesPre := make([]batchEntry, len(batch.IndexOps)) // Prealloc'ed.
@@ -208,9 +208,9 @@ func (udc *Fuego) batch(batch *index.Batch) (
 	//   sort.Sort(fieldTerms)
 
 	// Need a summary row update.
-	addRowsAll := [][]KVRow(nil)
-	updateRowsAll := [][]KVRow{[]KVRow{NewSummaryRow(currSegId)}}
-	deleteRowsAll := [][]KVRow(nil)
+	var addRowsAll [][]KVRow
+	var updateRowsAll [][]KVRow
+	var deleteRowsAll [][]KVRow
 
 	// Add the postings.
 	addRows := make([]KVRow, 0, len(fieldTerms)*3)
@@ -283,7 +283,7 @@ func (udc *Fuego) batch(batch *index.Batch) (
 	dictionaryDeltas := make(map[string]int64) // Keyed by dictionaryRow key.
 
 	segDirtiness = map[uint64]int64{} // Keyed by segId.
-	segDirtiness[currSegId] += 0 // Ensure an entry for currSegId.
+	segDirtiness[currSegId] += 0      // Ensure an entry for currSegId.
 
 	addRows = []KVRow(nil)
 
@@ -419,6 +419,8 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 
 	for _, addRows := range addRowsAll {
 		for _, row := range addRows {
+			udc.Logf("  addRow: %v\n", row)
+
 			addKeyBytes += row.KeySize()
 			addValBytes += row.ValueSize()
 		}
@@ -427,6 +429,8 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 
 	for _, updateRows := range updateRowsAll {
 		for _, row := range updateRows {
+			udc.Logf("  updateRow: %v\n", row)
+
 			updateKeyBytes += row.KeySize()
 			updateValBytes += row.ValueSize()
 		}
@@ -435,6 +439,8 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 
 	for _, deleteRows := range deleteRowsAll {
 		for _, row := range deleteRows {
+			udc.Logf("  deleteRow: %v\n", row)
+
 			deleteKeyBytes += row.KeySize()
 		}
 		deleteNum += len(deleteRows)
