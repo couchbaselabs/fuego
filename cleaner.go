@@ -25,10 +25,28 @@ import (
 var MinSegDirtiness = int64(4) // TODO: Pick better MinSegDirtiness.
 
 // Min number of segs before cleaning is attempted.
-var MinSegsToClean = 2 // TODO: Pick better MinSegsToClean.
+var MinSegsToClean = 4 // TODO: Pick better MinSegsToClean.
 
 // Max number of segs to clean during one cleaning cycle.
-var MaxSegsToClean = 4 // TODO: Pick better MaxSegsToClean.
+var MaxSegsToClean = 8 // TODO: Pick better MaxSegsToClean.
+
+// ---------------------------------------------
+
+type newPosting struct {
+	numRecs   int
+	recIds    [][]uint64
+	freqNorms [][]uint32
+	vectors   [][][]uint32
+}
+
+type newPostingSorter struct {
+	numRecs   int
+	recIds    []uint64
+	freqNorms []uint32
+	vectors   [][]uint32
+}
+
+// ---------------------------------------------
 
 // The segDirtinessIncoming tells us which seg's recently had changes.
 func (udc *Fuego) Cleaner(segDirtinessIncoming map[uint64]int64) error {
@@ -132,13 +150,14 @@ func (udc *Fuego) FindSegsToCleanLOCKED() (map[uint64]struct{}, error) {
 	return onlySegIds, nil
 }
 
-func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
-	onlySegIds map[uint64]struct{}, currSegId uint64) (
+func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
+	fieldIds []uint16, onlySegIds map[uint64]struct{}, currSegId uint64) (
 	addRowsAll [][]KVRow,
 	updateRowsAll [][]KVRow,
 	deleteRowsAll [][]KVRow,
 	err error) {
-	udc.Logf("CleanFieldsLOCKED, fieldIds: %#v, onlySegIds: %#v, currSegId: %x\n",
+	udc.Logf("CleanFieldsLOCKED,"+
+		" fieldIds: %#v, onlySegIds: %#v, currSegId: %x\n",
 		fieldIds, onlySegIds, currSegId)
 
 	buf := GetRowBuffer()
@@ -156,79 +175,48 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 	var currFieldId uint16
 	var currTerm []byte
 
-	var nextRecId uint64 = uint64(1)
+	// Maps old segId/recId to new recId.
+	mapOldSegRecIdToNewRecId := map[segRecId]uint64{}
 
-	var recIdsNewPosting [][]uint64
-	var freqNormsNewPosting [][]uint32
-	var vectorsNewPosting [][][]uint32
+	var newPosting newPosting
 
 	var recIdsCur []uint64
 	var freqNormsCur []uint32
 	var vectorsCur [][]uint32
 
 	// If the fieldId or term has changed, then flushFieldTerm()
-	// appends the collected "NewPosting" info into a new triplet of
+	// appends the collected newPosting info into a new triplet of
 	// posting rows in addRowsAll.
 	flushFieldTerm := func(fieldId uint16, term []byte) {
 		if currFieldId != fieldId || !bytes.Equal(currTerm, term) {
-			if nextRecId > 1 {
-				numRecs := int(nextRecId) - 1
+			if newPosting.numRecs > 0 {
+				udc.Logf("  flushing newPosting,"+
+					" currFieldId: %d, currTerm: %s,"+
+					" numRecs: %d,"+
+					" newPosting.recIds: %#v,"+
+					" newPosting.freqNorms: %#v,"+
+					" newPosting.vectors: %#v\n",
+					currFieldId, currTerm,
+					newPosting.numRecs,
+					newPosting.recIds,
+					newPosting.freqNorms,
+					newPosting.vectors)
 
-				udc.Logf("  flushing newPosting, currFieldId: %d, currTerm: %s, numRecs: %d,"+
-					" recIdsNewPosting: %#v, freqNormsNewPosting: %#v, vectorsNewPosting: %#v\n",
-					currFieldId, currTerm, numRecs,
-					recIdsNewPosting, freqNormsNewPosting, vectorsNewPosting)
-
-				recIdsFlat := make([]uint64, 0, numRecs)
-				for _, recIds := range recIdsNewPosting {
-					recIdsFlat = append(recIdsFlat, recIds...)
-				}
-				recIdsNewPosting = nil
-
-				freqNormsFlat := make([]uint32, 0, numRecs*2)
-				for _, freqNorms := range freqNormsNewPosting {
-					freqNormsFlat = append(freqNormsFlat, freqNorms...)
-				}
-				freqNormsNewPosting = nil
-
-				lenVectors := 0
-				for _, vectorsFromOldSeg := range vectorsNewPosting {
-					for _, vectors := range vectorsFromOldSeg {
-						lenVectors += len(vectors)
-					}
-				}
-
-				vectorsEncoded := make([]uint32, 1+numRecs+lenVectors)
-
-				vectorsEncoded[0] = uint32(numRecs)
-
-				partOffsets := vectorsEncoded[1:]
-				parts := vectorsEncoded[1+numRecs:]
-				partsUsed := 0
-
-				for i, vectorsFromOldSeg := range vectorsNewPosting {
-					for _, vectors := range vectorsFromOldSeg {
-						partOffsets[i] = uint32(partsUsed)
-						partsUsed += copy(parts[partsUsed:], vectors)
-					}
-				}
-				vectorsNewPosting = nil
-
-				addRowsAll = append(addRowsAll, []KVRow{
-					NewPostingRecIdsRow(
-						currFieldId, currTerm, currSegId, recIdsFlat),
-					NewPostingFreqNormsRow(
-						currFieldId, currTerm, currSegId, freqNormsFlat),
-					NewPostingVecsRow(
-						currFieldId, currTerm, currSegId, vectorsEncoded),
-				})
+				addRowsAll = append(
+					addRowsAll, newPosting.makePostingRows(
+						currFieldId, currTerm, currSegId))
 			}
+
+			newPosting.numRecs = 0
+			newPosting.recIds = nil
+			newPosting.freqNorms = nil
+			newPosting.vectors = nil
 
 			recIdsCur = nil
 			freqNormsCur = nil
 			vectorsCur = nil
 
-			nextRecId = 1
+			mapOldSegRecIdToNewRecId = map[segRecId]uint64{}
 		}
 
 		currFieldId = fieldId
@@ -247,10 +235,21 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 		recIdx int, recId uint64, alive bool) (
 		keepGoing bool, err error) {
 		if recIdx >= 0 {
-			udc.Logf("  visitor, fieldId: %d, term: %s, segId: %x, recIdx: %d, recId: %x, alive: %t\n",
+			udc.Logf("  visitor, fieldId: %d, term: %s,"+
+				" segId: %x, recIdx: %d, recId: %x, alive: %t\n",
 				fieldId, term, segId, recIdx, recId, alive)
 
 			if alive {
+				_, exists :=
+					mapOldSegRecIdToNewRecId[segRecId{segId, recId}]
+				if exists {
+					return true, nil
+				}
+
+				nextRecId := uint64(len(mapOldSegRecIdToNewRecId) + 1)
+
+				mapOldSegRecIdToNewRecId[segRecId{segId, recId}] = nextRecId
+
 				// Retrieve the id lookup row.
 				idRow := NewIdRow(segId, recId, nil)
 				if len(buf) < idRow.KeySize() {
@@ -299,10 +298,9 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 
 						vectorsCur = append(vectorsCur, vectorsEncoded)
 
-						udc.Logf("    nextRecId: %x, recIdsCur: %#v, freqNormsCur: %#v, vectorsCur: %#v\n",
+						udc.Logf("    nextRecId: %x, recIdsCur: %#v,"+
+							" freqNormsCur: %#v, vectorsCur: %#v\n",
 							nextRecId, recIdsCur, freqNormsCur, vectorsCur)
-
-						nextRecId += 1
 					}
 				}
 			} else {
@@ -310,7 +308,8 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 					[]KVRow{NewDeletionRow(segId, recId)})
 			}
 		} else {
-			udc.Logf(" visitor, fieldId: %d, term: %s, segId: %x, alive: %t\n",
+			udc.Logf(" visitor, fieldId: %d, term: %s,"+
+				" segId: %x, alive: %t\n",
 				fieldId, term, segId, alive)
 
 			if alive { // Started a new field/term/segId.
@@ -327,12 +326,18 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader, fieldIds []uint16,
 				})
 			} else { // Ended a new field/term/segId.
 				if len(recIdsCur) > 0 {
-					udc.Logf("  ending cur, recIdsCur: %#v, freqNormsCur: %#v, vectorsCur: %#v\n",
+					udc.Logf("  ending cur, recIdsCur: %#v,"+
+						" freqNormsCur: %#v, vectorsCur: %#v\n",
 						recIdsCur, freqNormsCur, vectorsCur)
 
-					recIdsNewPosting = append(recIdsNewPosting, recIdsCur)
-					freqNormsNewPosting = append(freqNormsNewPosting, freqNormsCur)
-					vectorsNewPosting = append(vectorsNewPosting, vectorsCur)
+					newPosting.numRecs += len(recIdsCur)
+
+					newPosting.recIds =
+						append(newPosting.recIds, recIdsCur)
+					newPosting.freqNorms =
+						append(newPosting.freqNorms, freqNormsCur)
+					newPosting.vectors =
+						append(newPosting.vectors, vectorsCur)
 
 					recIdsCur = nil
 					freqNormsCur = nil
@@ -606,4 +611,83 @@ func (c *segVisitor) refreshCurDeletionRow() error {
 	c.curDeletionRow = &c.tmpDeletionRow
 
 	return nil
+}
+
+// ---------------------------------------------
+
+func (np *newPosting) makePostingRows(
+	fieldId uint16, term []byte, segId uint64) []KVRow {
+	recIdsForSorting := make([]uint64, 0, np.numRecs)
+	for _, recIds := range np.recIds {
+		recIdsForSorting = append(recIdsForSorting, recIds...)
+	}
+
+	freqNormsForSorting := make([]uint32, 0, np.numRecs*2)
+	for _, freqNorms := range np.freqNorms {
+		freqNormsForSorting = append(freqNormsForSorting, freqNorms...)
+	}
+
+	lenVectors := 0
+
+	vectorsForSorting := make([][]uint32, 0, np.numRecs)
+	for _, vectorsFromOldSeg := range np.vectors {
+		vectorsForSorting = append(vectorsForSorting, vectorsFromOldSeg...)
+
+		for _, vectors := range vectorsFromOldSeg {
+			lenVectors += len(vectors)
+		}
+	}
+
+	nps := &newPostingSorter{
+		numRecs:   np.numRecs,
+		recIds:    recIdsForSorting,
+		freqNorms: freqNormsForSorting,
+		vectors:   vectorsForSorting,
+	}
+
+	// TODO: Avoid sort in future by carefully leveraging
+	// the fact that the old recId's are already sorted,
+	// albeit grouped by their old segId's.
+	sort.Sort(nps)
+
+	vectorsEncoded := make([]uint32, 1+nps.numRecs+lenVectors)
+
+	vectorsEncoded[0] = uint32(nps.numRecs)
+
+	partOffsets := vectorsEncoded[1:]
+	parts := vectorsEncoded[1+nps.numRecs:]
+	partsUsed := 0
+
+	for i, vectors := range nps.vectors {
+		partOffsets[i] = uint32(partsUsed)
+		partsUsed += copy(parts[partsUsed:], vectors)
+	}
+
+	return []KVRow{
+		NewPostingRecIdsRow(
+			fieldId, term, segId, nps.recIds),
+		NewPostingFreqNormsRow(
+			fieldId, term, segId, nps.freqNorms),
+		NewPostingVecsRow(
+			fieldId, term, segId, vectorsEncoded),
+	}
+}
+
+func (a *newPostingSorter) Len() int {
+	return a.numRecs
+}
+
+func (a *newPostingSorter) Swap(i, j int) {
+	a.recIds[i], a.recIds[j] = a.recIds[j], a.recIds[i]
+
+	a.freqNorms[i*2], a.freqNorms[j*2] =
+		a.freqNorms[j*2], a.freqNorms[i*2]
+	a.freqNorms[i*2+1], a.freqNorms[j*2+1] =
+		a.freqNorms[j*2+1], a.freqNorms[i*2+1]
+
+	a.vectors[i], a.vectors[j] = a.vectors[j], a.vectors[i]
+}
+
+func (a *newPostingSorter) Less(i, j int) bool {
+	return a.recIds[i] < a.recIds[j]
 }

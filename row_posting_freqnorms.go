@@ -77,7 +77,7 @@ func (p *PostingFreqNormsRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (p *PostingFreqNormsRow) String() string {
-	return fmt.Sprintf("Field: %d, Term: `%s`, len(freqNorms): %d",
+	return fmt.Sprintf("Field: %d, Term: `%q`, len(freqNorms): %d",
 		p.field, string(p.term), len(p.freqNorms))
 }
 

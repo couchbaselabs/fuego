@@ -27,6 +27,11 @@ import (
 	"github.com/blevesearch/bleve/index/store"
 )
 
+type segRecId struct {
+	segId uint64
+	recId uint64
+}
+
 type Fuego struct {
 	version       uint8
 	path          string
@@ -66,7 +71,9 @@ func NewFuego(storeName string, storeConfig map[string]interface{},
 }
 
 func (udc *Fuego) Logf(format string, a ...interface{}) (n int, err error) {
-	if udc.verbose > 0 && udc.verbose-1 < len(format) && format[udc.verbose-1] != ' ' {
+	if udc.verbose > 0 &&
+		udc.verbose-1 < len(format) &&
+		format[udc.verbose-1] != ' ' {
 		return fmt.Printf(format, a...)
 	}
 

@@ -177,7 +177,7 @@ func (p *PostingVecsRow) String() string {
 		numVecs = p.encoded[0]
 	}
 
-	return fmt.Sprintf("Field: %d, Term: `%s`, numVecs: %d, len(encoded): %d",
+	return fmt.Sprintf("Field: %d, Term: `%q`, numVecs: %d, len(encoded): %d",
 		p.field, string(p.term), numVecs, len(p.encoded))
 }
 

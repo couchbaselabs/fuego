@@ -88,7 +88,7 @@ func (p *PostingRecIdsRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (p *PostingRecIdsRow) String() string {
-	return fmt.Sprintf("Field: %d, Term: `%s`, len(recIds): %d",
+	return fmt.Sprintf("Field: %d, Term: `%q`, len(recIds): %d",
 		p.field, string(p.term), len(p.recIds))
 }
 

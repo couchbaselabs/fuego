@@ -81,7 +81,14 @@ func NewFieldRowKV(key, value []byte) (*FieldRow, error) {
 }
 
 func (f *FieldRow) ParseKV(key, value []byte) (err error) {
+	if len(key) != 3 {
+		return fmt.Errorf("wrong FieldRow size")
+	}
 	f.index = binary.LittleEndian.Uint16(key[1:])
+
+	if len(value) <= 1 {
+		return fmt.Errorf("FieldRow value too small")
+	}
 	f.name = string(value[:len(value)-1])
 
 	return nil

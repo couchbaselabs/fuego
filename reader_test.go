@@ -20,7 +20,6 @@ import (
 
 	"github.com/blevesearch/bleve/document"
 	"github.com/blevesearch/bleve/index"
-	"github.com/blevesearch/bleve/index/store/boltdb"
 	"github.com/blevesearch/bleve/index/store/moss"
 )
 
@@ -224,7 +223,7 @@ func TestIndexDocIdReader(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +341,7 @@ func TestIndexDocIdOnlyReader(t *testing.T) {
 	}()
 
 	analysisQueue := index.NewAnalysisQueue(1)
-	idx, err := NewFuego(boltdb.Name, boltTestConfig, analysisQueue)
+	idx, err := NewFuego(moss.Name, stdTestConfig, analysisQueue)
 	if err != nil {
 		t.Fatal(err)
 	}
