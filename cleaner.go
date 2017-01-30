@@ -190,13 +190,13 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
 	flushFieldTerm := func(fieldId uint16, term []byte) {
 		if currFieldId != fieldId || !bytes.Equal(currTerm, term) {
 			if newPosting.numRecs > 0 {
-				udc.Logf("  flushing newPosting,"+
-					" currFieldId: %d, currTerm: %s,"+
+				udc.Logf(" flushing newPosting,"+
+					" currFieldId: %d, currTerm: %s, currSegId: %x,"+
 					" numRecs: %d,"+
 					" newPosting.recIds: %#v,"+
 					" newPosting.freqNorms: %#v,"+
 					" newPosting.vectors: %#v\n",
-					currFieldId, currTerm,
+					currFieldId, currTerm, currSegId,
 					newPosting.numRecs,
 					newPosting.recIds,
 					newPosting.freqNorms,
@@ -215,8 +215,6 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
 			recIdsCur = nil
 			freqNormsCur = nil
 			vectorsCur = nil
-
-			mapOldSegRecIdToNewRecId = map[segRecId]uint64{}
 		}
 
 		currFieldId = fieldId
@@ -240,80 +238,80 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
 				fieldId, term, segId, recIdx, recId, alive)
 
 			if alive {
-				_, exists :=
+				nextRecId, exists :=
 					mapOldSegRecIdToNewRecId[segRecId{segId, recId}]
-				if exists {
-					return true, nil
-				}
+				if !exists {
+					nextRecId = uint64(len(mapOldSegRecIdToNewRecId) + 1)
 
-				nextRecId := uint64(len(mapOldSegRecIdToNewRecId) + 1)
+					mapOldSegRecIdToNewRecId[segRecId{segId, recId}] = nextRecId
 
-				mapOldSegRecIdToNewRecId[segRecId{segId, recId}] = nextRecId
+					// Retrieve the id lookup row.
+					idRow := NewIdRow(segId, recId, nil)
+					if len(buf) < idRow.KeySize() {
+						buf = make([]byte, idRow.KeySize())
+					}
+					bufUsed, _ := idRow.KeyTo(buf)
 
-				// Retrieve the id lookup row.
-				idRow := NewIdRow(segId, recId, nil)
-				if len(buf) < idRow.KeySize() {
-					buf = make([]byte, idRow.KeySize())
-				}
-				bufUsed, _ := idRow.KeyTo(buf)
-
-				docIDBytes, err := kvreader.Get(buf[:bufUsed])
-				if err != nil {
-					return false, err
-				}
-
-				if len(docIDBytes) > 0 {
-					deleteRowsAll = append(deleteRowsAll, []KVRow{idRow})
-
-					backIndexRow, err :=
-						backIndexRowForDocID(kvreader, docIDBytes, nil)
+					docIDBytes, err := kvreader.Get(buf[:bufUsed])
 					if err != nil {
 						return false, err
 					}
 
-					udc.Logf("   backIndexRow: #%v, docIDBytes: %s\n",
-						backIndexRow, docIDBytes)
+					if len(docIDBytes) > 0 {
+						deleteRowsAll = append(deleteRowsAll, []KVRow{idRow})
 
-					if backIndexRow != nil {
-						backIndexRow.segId = currSegId
-						backIndexRow.recId = nextRecId
-
-						updateRowsAll = append(updateRowsAll,
-							[]KVRow{backIndexRow})
-
-						addRowsAll = append(addRowsAll,
-							[]KVRow{NewIdRow(currSegId, nextRecId, docIDBytes)})
-
-						recIdsCur = append(recIdsCur, nextRecId)
-
-						freqNormsCur = append(freqNormsCur,
-							sp.rowFreqNorms.Freq(recIdx),
-							sp.rowFreqNorms.NormEncoded(recIdx))
-
-						vectorsEncoded, err :=
-							sp.rowVecs.TermFieldVectorsEncoded(recIdx)
+						backIndexRow, err :=
+							backIndexRowForDocID(kvreader, docIDBytes, nil)
 						if err != nil {
 							return false, err
 						}
 
-						vectorsCur = append(vectorsCur, vectorsEncoded)
+						udc.Logf("   backIndexRow: #%v, docIDBytes: %s\n",
+							backIndexRow, docIDBytes)
 
-						udc.Logf("    nextRecId: %x, recIdsCur: %#v,"+
-							" freqNormsCur: %#v, vectorsCur: %#v\n",
-							nextRecId, recIdsCur, freqNormsCur, vectorsCur)
+						if backIndexRow != nil {
+							backIndexRow.segId = currSegId
+							backIndexRow.recId = nextRecId
+
+							updateRowsAll = append(updateRowsAll,
+								[]KVRow{backIndexRow})
+
+							addRowsAll = append(addRowsAll,
+								[]KVRow{NewIdRow(currSegId, nextRecId, docIDBytes)})
+						}
 					}
 				}
+
+				recIdsCur = append(recIdsCur, nextRecId)
+
+				freqNormsCur = append(freqNormsCur,
+					sp.rowFreqNorms.Freq(recIdx),
+					sp.rowFreqNorms.NormEncoded(recIdx))
+
+				vectorsEncoded, err :=
+					sp.rowVecs.TermFieldVectorsEncoded(recIdx)
+				if err != nil {
+					return false, err
+				}
+
+				vectorsCur = append(vectorsCur, vectorsEncoded)
+
+				udc.Logf("    nextRecId: %x, recIdsCur: %#v,"+
+					" freqNormsCur: %#v, vectorsCur: %#v\n",
+					nextRecId, recIdsCur, freqNormsCur, vectorsCur)
 			} else {
+				udc.Logf("    delete DeletionRow, segId: %x, recId: %v\n",
+					segId, recId)
+
 				deleteRowsAll = append(deleteRowsAll,
 					[]KVRow{NewDeletionRow(segId, recId)})
 			}
 		} else {
-			udc.Logf(" visitor, fieldId: %d, term: %s,"+
-				" segId: %x, alive: %t\n",
-				fieldId, term, segId, alive)
-
 			if alive { // Started a new field/term/segId.
 				flushFieldTerm(fieldId, term)
+
+				udc.Logf(" visitor, fieldId: %d, term: %s, segId: %x {\n",
+					fieldId, term, segId)
 
 				recIdsCur = make([]uint64, 0, len(sp.rowRecIds.recIds))
 				freqNormsCur = make([]uint32, 0, len(sp.rowFreqNorms.freqNorms))
@@ -325,8 +323,11 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
 					NewPostingVecsRowFromVectors(fieldId, term, segId, nil),
 				})
 			} else { // Ended a new field/term/segId.
+				udc.Logf(" visitor, fieldId: %d, term: %s, segId: %x }\n",
+					fieldId, term, segId)
+
 				if len(recIdsCur) > 0 {
-					udc.Logf("  ending cur, recIdsCur: %#v,"+
+					udc.Logf(" appending to newPosting, recIdsCur: %#v,"+
 						" freqNormsCur: %#v, vectorsCur: %#v\n",
 						recIdsCur, freqNormsCur, vectorsCur)
 
@@ -480,6 +481,8 @@ func (c *segVisitor) StartIterator(kvreader store.KVReader,
 
 	c.deletionIter = kvreader.RangeIterator(c.buf[:bufUsed], deletionRowKeyEnd)
 
+	c.refreshCurDeletionRow()
+
 	return nil
 }
 
@@ -552,7 +555,7 @@ func (c *segVisitor) nextSegPostings() error {
 }
 
 func (c *segVisitor) processDeletedRec(sp *segPostings,
-	segId uint64, recId uint64) bool {
+	segId uint64, recId uint64) (wasDeleted bool) {
 	if c.curDeletionRow == nil {
 		return false
 	}

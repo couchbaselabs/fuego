@@ -152,8 +152,8 @@ func TestDump(t *testing.T) {
 	}
 }
 
-func debugDumpAll(idx *Fuego) {
-	reader, _ := idx.Reader()
+func debugDumpAll(idx index.Index) {
+	reader, _ := idx.(*Fuego).Reader()
 	defer reader.Close()
 
 	fmt.Printf("-----------------\n")

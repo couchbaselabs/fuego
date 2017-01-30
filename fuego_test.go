@@ -372,6 +372,8 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Error(err)
 	}
 	if rowCount != expectedLength {
+		debugDumpAll(idx)
+
 		t.Errorf("expected %d rows, got: %d", expectedLength, rowCount)
 	}
 

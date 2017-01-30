@@ -67,7 +67,7 @@ func (p *DeletionRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (p *DeletionRow) String() string {
-	return fmt.Sprintf("Deletion segId: %d, recId: %d", p.segId, p.recId)
+	return fmt.Sprintf("Deletion segId: %x, recId: %x", p.segId, p.recId)
 }
 
 func NewDeletionRow(segId uint64, recId uint64) *DeletionRow {

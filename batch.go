@@ -419,7 +419,7 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 
 	for _, addRows := range addRowsAll {
 		for _, row := range addRows {
-			udc.Logf("  addRow: %v\n", row)
+			udc.Logf("   addRow: %v\n", row)
 
 			addKeyBytes += row.KeySize()
 			addValBytes += row.ValueSize()
@@ -429,7 +429,7 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 
 	for _, updateRows := range updateRowsAll {
 		for _, row := range updateRows {
-			udc.Logf("  updateRow: %v\n", row)
+			udc.Logf("   updateRow: %v\n", row)
 
 			updateKeyBytes += row.KeySize()
 			updateValBytes += row.ValueSize()
@@ -439,7 +439,7 @@ func (udc *Fuego) batchRows(writer store.KVWriter,
 
 	for _, deleteRows := range deleteRowsAll {
 		for _, row := range deleteRows {
-			udc.Logf("  deleteRow: %v\n", row)
+			udc.Logf("   deleteRow: %v\n", row)
 
 			deleteKeyBytes += row.KeySize()
 		}

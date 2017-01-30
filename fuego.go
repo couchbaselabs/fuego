@@ -27,6 +27,8 @@ import (
 	"github.com/blevesearch/bleve/index/store"
 )
 
+var DefaultVerbosity = 0
+
 type segRecId struct {
 	segId uint64
 	recId uint64
@@ -41,7 +43,7 @@ type Fuego struct {
 	fieldCache    *index.FieldCache
 	analysisQueue *index.AnalysisQueue
 	stats         *indexStat
-	verbose       int // Log debugging level.
+	verbosity     int // Log debugging level.
 
 	m sync.RWMutex // Protects the fields that follow.
 
@@ -64,16 +66,16 @@ func NewFuego(storeName string, storeConfig map[string]interface{},
 		analysisQueue: analysisQueue,
 		lastUsedSegId: math.MaxUint64,
 		segDirtiness:  map[uint64]int64{},
-		verbose:       0,
+		verbosity:     DefaultVerbosity,
 	}
 	rv.stats = &indexStat{i: rv}
 	return rv, nil
 }
 
 func (udc *Fuego) Logf(format string, a ...interface{}) (n int, err error) {
-	if udc.verbose > 0 &&
-		udc.verbose-1 < len(format) &&
-		format[udc.verbose-1] != ' ' {
+	if udc.verbosity > 0 &&
+		udc.verbosity-1 < len(format) &&
+		format[udc.verbosity-1] != ' ' {
 		return fmt.Printf(format, a...)
 	}
 
