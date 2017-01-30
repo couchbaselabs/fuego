@@ -25,10 +25,6 @@ import (
 	"github.com/blevesearch/bleve/document"
 )
 
-var stdTestConfig = map[string]interface{}{
-	"path": "test",
-}
-
 func TestDump(t *testing.T) {
 	defer func() {
 		err := DestroyTest()
@@ -131,7 +127,6 @@ func TestDump(t *testing.T) {
 	}
 
 	// 1 version
-	// 1 summaryRow
 	// fieldsCount field rows
 	// 2 docs * expectedDocRowCount
 	// 2 back index rows
@@ -140,7 +135,7 @@ func TestDump(t *testing.T) {
 	// 16 numeric term row counts (shared for both docs, same numeric value)
 	// 16 date term row counts (shared for both docs, same date value)
 	// 3*2 + 2*(3*16 + 3*16)
-	expectedAllRowCount := int(1 + 1 + fieldsCount + (2 * expectedDocRowCount) + 2 + 2 + 2 + int((2 * (64 / document.DefaultPrecisionStep))) + 3*2 + 2*(3*16+3*16))
+	expectedAllRowCount := int(1 + fieldsCount + (2 * expectedDocRowCount) + 2 + 2 + 2 + int((2 * (64 / document.DefaultPrecisionStep))) + 3*2 + 2*(3*16+3*16))
 
 	allRowCount := 0
 	allRows := reader.DumpAll()
@@ -161,6 +156,7 @@ func debugDumpAll(idx *Fuego) {
 	reader, _ := idx.Reader()
 	defer reader.Close()
 
+	fmt.Printf("-----------------\n")
 	allRows := reader.DumpAll()
 	for row := range allRows {
 		fmt.Printf(" row: %v\n", row)

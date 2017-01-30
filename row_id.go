@@ -141,7 +141,7 @@ func (p *IdRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (p *IdRow) String() string {
-	return fmt.Sprintf("Id segId: %d, recId: %d, docID: %s",
+	return fmt.Sprintf("Id segId: %x, recId: %x, docID: %q",
 		p.segId, p.recId, string(p.docID))
 }
 

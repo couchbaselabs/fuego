@@ -107,7 +107,7 @@ func (br *BackIndexRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (br *BackIndexRow) String() string {
-	return fmt.Sprintf("BackIndex docID: `%s`, segId: %d, recId: %d, "+
+	return fmt.Sprintf("BackIndex docID: `%q`, segId: %x, recId: %x, "+
 		"termEntries: %v, storedEntries: %v",
 		string(br.docID), br.segId, br.recId, br.termEntries, br.storedEntries)
 }

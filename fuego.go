@@ -41,7 +41,7 @@ type Fuego struct {
 	fieldCache    *index.FieldCache
 	analysisQueue *index.AnalysisQueue
 	stats         *indexStat
-	verbose       int
+	verbose       int // Log debugging level.
 
 	m sync.RWMutex // Protects the fields that follow.
 
@@ -64,7 +64,7 @@ func NewFuego(storeName string, storeConfig map[string]interface{},
 		analysisQueue: analysisQueue,
 		lastUsedSegId: math.MaxUint64,
 		segDirtiness:  map[uint64]int64{},
-		verbose:       3,
+		verbose:       0,
 	}
 	rv.stats = &indexStat{i: rv}
 	return rv, nil

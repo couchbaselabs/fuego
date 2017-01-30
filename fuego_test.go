@@ -28,10 +28,18 @@ import (
 	regexpTokenizer "github.com/blevesearch/bleve/analysis/tokenizer/regexp"
 	"github.com/blevesearch/bleve/document"
 	"github.com/blevesearch/bleve/index"
+	"github.com/blevesearch/bleve/index/store"
 	"github.com/blevesearch/bleve/index/store/moss"
 	"github.com/blevesearch/bleve/index/store/null"
 	"github.com/blevesearch/bleve/registry"
+
+	couchbaseMoss "github.com/couchbase/moss"
 )
+
+var stdTestConfig = map[string]interface{}{
+	"path": "test",
+	"mossLowerLevelStoreName": "mossStore",
+}
 
 var testAnalyzer = &analysis.Analyzer{
 	Tokenizer: regexpTokenizer.NewRegexpTokenizer(regexp.MustCompile(`\w+`)),
@@ -72,8 +80,8 @@ func TestIndexOpenReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// opening the database should have inserted a version & summary
-	expectedLength := uint64(2)
+	// opening the database should have inserted a version
+	expectedLength := uint64(1)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -169,8 +177,8 @@ func TestIndexInsert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the term count, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows
-	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 3)
+	// should have rows (1 for version, 1 for schema field, 1 for the term count, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows
+	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 3)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -297,8 +305,8 @@ func TestIndexInsertThenDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for dictionary row garbage, 3*2 for posting recId/freqNorm/vec rows garbage, 2 deletionRows)
-	expectedLength := uint64(1 + 1 + 1 + 1 + 6 + 2)
+	// should have rows (1 for version, 1 for schema field, 1 for dictionary row garbage, 3*2 for posting recId/freqNorm/vec rows garbage, 2 deletionRows)
+	expectedLength := uint64(1 + 1 + 1 + 6 + 2)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -339,8 +347,8 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Errorf("Error updating index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the term counts, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows)
-	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 3)
+	// should have rows (1 for version, 1 for schema field, 1 for the term counts, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows)
+	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 3)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -357,8 +365,8 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Errorf("Error deleting entry from index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 2 for the term counts, 1 for the back index entry, 1 for id row, 3 + 3*2 for posting recId/freqNorm/vec rows, 1 deletionRow)
-	expectedLength = uint64(1 + 1 + 1 + 2 + 1 + 1 + 9 + 1)
+	// should have rows (1 for version, 1 for schema field, 2 for the term counts, 1 for the back index entry, 1 for id row, 3 + 3*2 for posting recId/freqNorm/vec rows, 1 deletionRow)
+	expectedLength = uint64(1 + 1 + 2 + 1 + 1 + 9 + 1)
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -375,8 +383,8 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 		t.Errorf("Error deleting entry from index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field,  2 for the term dictionary, 1 for the back index entry, 1 for id row, 3+3*2+3 for posting recId/freqNorm/vec rows, 2 deletionRow)
-	expectedLength = uint64(1 + 1 + 1 + 2 + 1 + 1 + 12 + 2)
+	// should have rows (1 for version, 1 for schema field,  2 for the term dictionary, 1 for the back index entry, 1 for id row, 3+3*2+3 for posting recId/freqNorm/vec rows, 2 deletionRow)
+	expectedLength = uint64(1 + 1 + 2 + 1 + 1 + 12 + 2)
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -422,8 +430,8 @@ func TestIndexInsertMultiple(t *testing.T) {
 	}
 	expectedCount++
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the term count, 2 for the back index entries, 2 for id rows, 3*2 for posting recId/freqNorm/vec rows)
-	expectedLength := uint64(1 + 1 + 1 + 1 + 2 + 2 + 6)
+	// should have rows (1 for version, 1 for schema field, 1 for the term count, 2 for the back index entries, 2 for id rows, 3*2 for posting recId/freqNorm/vec rows)
+	expectedLength := uint64(1 + 1 + 1 + 2 + 2 + 6)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -431,6 +439,8 @@ func TestIndexInsertMultiple(t *testing.T) {
 	if rowCount != expectedLength {
 		t.Errorf("expected %d rows, got: %d", expectedLength, rowCount)
 	}
+
+	waitUntilMossClean(idx)
 
 	// close, reopen and add one more to test that counting works correctly
 	err = idx.Close()
@@ -446,12 +456,7 @@ func TestIndexInsertMultiple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error opening index: %v", err)
 	}
-	defer func() {
-		err := idx.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-	}()
+	defer idx.Close()
 
 	doc = document.NewDocument("3")
 	doc.AddField(document.NewTextField("name", []uint64{}, []byte("test")))
@@ -470,6 +475,7 @@ func TestIndexInsertMultiple(t *testing.T) {
 		t.Error(err)
 	}
 	if docCount != expectedCount {
+		debugDumpAll(idx.(*Fuego))
 		t.Errorf("Expected document count to be %d got %d", expectedCount, docCount)
 	}
 	err = reader.Close()
@@ -543,8 +549,8 @@ func TestIndexInsertWithStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// should have rows (1 for version, 1 for summaryRow, 1 for schema field, 1 for the stored field, 1 for the term count, 1 for back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows)
-	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 1 + 3)
+	// should have rows (1 for version, 1 for schema field, 1 for the stored field, 1 for the term count, 1 for back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows)
+	expectedLength := uint64(1 + 1 + 1 + 1 + 1 + 1 + 3)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -857,7 +863,6 @@ func TestIndexInsertUpdateDeleteWithMultipleTypesStored(t *testing.T) {
 	}
 
 	// 1 for version
-	// 1 for summaryRow
 	// 3 for schema fields
 	// 3 for the stored field
 	// 1 for the text term count
@@ -866,7 +871,7 @@ func TestIndexInsertUpdateDeleteWithMultipleTypesStored(t *testing.T) {
 	// 1 for the back index entry
 	// 1 for id row
 	// 3 + 3*16 + 3*16 for posting recId/freqNorm/vec rows
-	expectedLength := uint64(1 + 1 + 3 + 3 + 1 + (64 / document.DefaultPrecisionStep) + (64 / document.DefaultPrecisionStep) + 1 + 1 + 3 + 3*16 + 3*16)
+	expectedLength := uint64(1 + 3 + 3 + 1 + (64 / document.DefaultPrecisionStep) + (64 / document.DefaultPrecisionStep) + 1 + 1 + 3 + 3*16 + 3*16)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -1097,14 +1102,13 @@ func TestIndexUpdateComposites(t *testing.T) {
 	}
 
 	// 1 for version
-	// 1 for summaryRow
 	// 3 for schema fields
 	// 2 for the stored field
 	// 4 for the text term count
 	// 1 for the back index entry
 	// 1 for id row
 	// 3*2 + 3*2 for posting recId/freqNorm/vec rows
-	expectedLength := uint64(1 + 1 + 3 + 2 + 4 + 1 + 1 + 12)
+	expectedLength := uint64(1 + 3 + 2 + 4 + 1 + 1 + 12)
 	rowCount, err := idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -1464,5 +1468,22 @@ func TestLargeField(t *testing.T) {
 	err = idx.Update(d)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func waitUntilMossClean(idx index.Index) {
+	kvs, _ := idx.Advanced()
+	kvss := kvs.(store.KVStoreStats)
+
+	for true {
+		time.Sleep(50 * time.Millisecond)
+
+		s := kvss.StatsMap()
+		mcStats := s["moss"].(*couchbaseMoss.CollectionStats)
+		if mcStats.CurDirtyOps <= 0 &&
+			mcStats.CurDirtyBytes <= 0 &&
+			mcStats.CurDirtySegments <= 0 {
+			return
+		}
 	}
 }
