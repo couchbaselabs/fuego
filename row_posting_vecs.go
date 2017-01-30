@@ -56,7 +56,7 @@ func (p *PostingVecsRow) TermFieldVectors(i int,
 	fieldCache *index.FieldCache, prealloc []*index.TermFieldVector) (
 	[]*index.TermFieldVector, error) {
 	rec, err := p.TermFieldVectorsEncoded(i)
-	if err != nil || rec == nil {
+	if err != nil || len(rec) <= 0 {
 		return nil, err
 	}
 

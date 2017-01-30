@@ -37,7 +37,7 @@ import (
 )
 
 var stdTestConfig = map[string]interface{}{
-	"path": "test",
+	"path":                    "test",
 	"mossLowerLevelStoreName": "mossStore",
 }
 

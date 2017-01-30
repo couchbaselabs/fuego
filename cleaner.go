@@ -25,7 +25,7 @@ import (
 var MinSegDirtiness = int64(4) // TODO: Pick better MinSegDirtiness.
 
 // Min number of segs before cleaning is attempted.
-var MinSegsToClean = 5 // TODO: Pick better MinSegsToClean.
+var MinSegsToClean = 0 // TODO: Pick better MinSegsToClean.
 
 // Max number of segs to clean during one cleaning cycle.
 var MaxSegsToClean = 10 // TODO: Pick better MaxSegsToClean.
