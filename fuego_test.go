@@ -37,7 +37,7 @@ import (
 )
 
 var stdTestConfig = map[string]interface{}{
-	"path":                    "test",
+	"path": "test",
 	"mossLowerLevelStoreName": "mossStore",
 }
 
@@ -362,18 +362,16 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 	doc.AddField(document.NewTextFieldWithAnalyzer("name", []uint64{}, []byte("test fail"), testAnalyzer))
 	err = idx.Update(doc)
 	if err != nil {
-		t.Errorf("Error deleting entry from index: %v", err)
+		t.Errorf("Error updating entry in index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for schema field, 2 for the term counts, 1 for the back index entry, 1 for id row, 3 + 3*2 for posting recId/freqNorm/vec rows, 1 deletionRow)
-	expectedLength = uint64(1 + 1 + 2 + 1 + 1 + 9 + 1)
+	// should have rows (1 for version, 1 for schema field, 2 for the term counts, 1 for the back index entry, 1 for id row, 3*2 for posting recId/freqNorm/vec rows)
+	expectedLength = uint64(1 + 1 + 2 + 1 + 1 + 6)
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
 	}
 	if rowCount != expectedLength {
-		debugDumpAll(idx)
-
 		t.Errorf("expected %d rows, got: %d", expectedLength, rowCount)
 	}
 
@@ -382,11 +380,11 @@ func TestIndexInsertThenUpdate(t *testing.T) {
 	doc.AddField(document.NewTextFieldWithAnalyzer("name", []uint64{}, []byte("fail"), testAnalyzer))
 	err = idx.Update(doc)
 	if err != nil {
-		t.Errorf("Error deleting entry from index: %v", err)
+		t.Errorf("Error updating entry in index: %v", err)
 	}
 
-	// should have rows (1 for version, 1 for schema field,  2 for the term dictionary, 1 for the back index entry, 1 for id row, 3+3*2+3 for posting recId/freqNorm/vec rows, 2 deletionRow)
-	expectedLength = uint64(1 + 1 + 2 + 1 + 1 + 12 + 2)
+	// should have rows (1 for version, 1 for schema field,  2 for the term dictionary, 1 for the back index entry, 1 for id row, 3 for posting recId/freqNorm/vec rows)
+	expectedLength = uint64(1 + 1 + 2 + 1 + 1 + 3)
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
@@ -1156,13 +1154,15 @@ func TestIndexUpdateComposites(t *testing.T) {
 		t.Errorf("expected field content 'test', got '%s'", string(textField.Value()))
 	}
 
-	// should have the same row count as before, plus 4 additional term dictionary rows, 3*2 + 3*2 for posting recId/freqNorm/vec rows, 1 deletionRow.
-	expectedLength += 4 + 12 + 1
+	// should have the same row count as before, plus 4 additional term dictionary rows.
+	expectedLength += 4
 	rowCount, err = idx.(*Fuego).rowCount()
 	if err != nil {
 		t.Error(err)
 	}
 	if rowCount != expectedLength {
+		debugDumpAll(idx)
+
 		t.Errorf("expected %d rows, got: %d", expectedLength, rowCount)
 	}
 }
