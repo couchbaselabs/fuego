@@ -28,7 +28,7 @@ var MinSegDirtiness = int64(4) // TODO: Pick better MinSegDirtiness.
 var MinSegsToClean = 0 // TODO: Pick better MinSegsToClean.
 
 // Max number of segs to clean during one cleaning cycle.
-var MaxSegsToClean = 10 // TODO: Pick better MaxSegsToClean.
+var MaxSegsToClean = 1000 // TODO: Pick better MaxSegsToClean.
 
 // ---------------------------------------------
 
@@ -104,6 +104,8 @@ func (udc *Fuego) CleanerLOCKED() error {
 	err = udc.batchRows(kvwriter, addRowsAll, updateRowsAll, deleteRowsAll, nil)
 
 	kvwriter.Close()
+
+	udc.segDirtiness[currSegId] = 0
 
 	return err
 }

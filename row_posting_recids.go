@@ -88,8 +88,8 @@ func (p *PostingRecIdsRow) ValueTo(buf []byte) (int, error) {
 }
 
 func (p *PostingRecIdsRow) String() string {
-	return fmt.Sprintf("Field: %d, Term: `%q`, len(recIds): %d",
-		p.field, string(p.term), len(p.recIds))
+	return fmt.Sprintf("Field: %d, Term: `%q`, segId: %x, len(recIds): %d",
+		p.field, string(p.term), p.segId, len(p.recIds))
 }
 
 func NewPostingRecIdsRow(field uint16, term []byte, segId uint64, recIds []uint64) *PostingRecIdsRow {

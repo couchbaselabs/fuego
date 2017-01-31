@@ -15,7 +15,6 @@
 package fuego
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -149,16 +148,5 @@ func TestDump(t *testing.T) {
 	err = reader.Close()
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func debugDumpAll(idx index.Index) {
-	reader, _ := idx.(*Fuego).Reader()
-	defer reader.Close()
-
-	fmt.Printf("-----------------\n")
-	allRows := reader.DumpAll()
-	for row := range allRows {
-		fmt.Printf(" row: %v\n", row)
 	}
 }

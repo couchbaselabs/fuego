@@ -145,3 +145,14 @@ func (udc *Fuego) rowCount() (uint64, error) {
 
 	return count, nil
 }
+
+func debugDumpAll(idx index.Index) {
+	reader, _ := idx.(*Fuego).Reader()
+	defer reader.Close()
+
+	fmt.Printf("-----------------\n")
+	allRows := reader.DumpAll()
+	for row := range allRows {
+		fmt.Printf(" row: %v\n", row)
+	}
+}
