@@ -107,6 +107,10 @@ func (udc *Fuego) CleanerLOCKED() error {
 
 	udc.segDirtiness[currSegId] = 0
 
+	for segId := range onlySegIds {
+		delete(udc.segDirtiness, segId)
+	}
+
 	return err
 }
 
