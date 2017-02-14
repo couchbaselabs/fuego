@@ -430,28 +430,24 @@ func (c *segVisitor) Visit(kvreader store.KVReader,
 
 			visitor(fieldId, term, sp, segId, -1, 0, true)
 
-		LOOP_REC:
-			for sp.nextRecIdx < len(sp.rowRecIds.recIds) {
-				recIdx := sp.nextRecIdx
+			recIdx := 0
+
+			for recIdx < len(sp.rowRecIds.recIds) {
 				recId := sp.rowRecIds.recIds[recIdx]
 
-				if c.processDeletedRec(sp, segId, recId) {
-					keepGoing, err :=
-						visitor(fieldId, term, sp, segId, recIdx, recId, false)
-					if !keepGoing || err != nil {
-						return err
-					}
-
-					continue LOOP_REC
+				wasDeleted, needRetry, err := c.processDeletedRec(sp, segId, recId)
+				if err != nil {
+					return err
 				}
 
-				sp.nextRecIdx++
-
-				// The deletionRow is nil or is > recId, so found a rec.
 				keepGoing, err :=
-					visitor(fieldId, term, sp, segId, recIdx, recId, true)
+					visitor(fieldId, term, sp, segId, recIdx, recId, !wasDeleted)
 				if !keepGoing || err != nil {
 					return err
+				}
+
+				if !needRetry {
+					recIdx += 1
 				}
 			}
 
@@ -487,7 +483,10 @@ func (c *segVisitor) StartIterator(kvreader store.KVReader,
 
 	c.deletionIter = kvreader.RangeIterator(c.buf[:bufUsed], deletionRowKeyEnd)
 
-	c.refreshCurDeletionRow()
+	err = c.refreshCurDeletionRow()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -553,37 +552,36 @@ func (c *segVisitor) nextSegPostings() error {
 
 	c.postingsIter.Next()
 
-	c.tmpSegPostings.nextRecIdx = 0
-
 	c.curSegPostings = &c.tmpSegPostings
+
+	c.curSegPostings.nextRecIdx = 0
 
 	return nil
 }
 
 func (c *segVisitor) processDeletedRec(sp *segPostings,
-	segId uint64, recId uint64) (wasDeleted bool) {
+	segId uint64, recId uint64) (wasDeleted, needRetry bool, err error) {
 	if c.curDeletionRow == nil {
-		return false
+		return false, false, nil
 	}
 
 	if c.curDeletionRow.segId < segId {
-		c.seekDeletionIter(segId, recId)
-		return true
+		err := c.seekDeletionIter(segId, recId)
+		return false, true, err
 	}
 
 	if c.curDeletionRow.segId == segId {
 		if c.curDeletionRow.recId < recId {
-			c.seekDeletionIter(segId, recId)
-			return true
+			err := c.seekDeletionIter(segId, recId)
+			return false, true, err
 		}
 
 		if c.curDeletionRow.recId == recId {
-			sp.nextRecIdx++ // The rec was deleted.
-			return true
+			return true, false, nil
 		}
 	}
 
-	return false
+	return false, false, nil
 }
 
 func (c *segVisitor) seekDeletionIter(segId, recId uint64) error {
