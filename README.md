@@ -1,6 +1,6 @@
 How's fuego different than bleve's upsidedown indexing approach?
 
-First off, fuego's a fork of upsidedown, so it shares a lot of code.
+First off, fuego is a fork of upsidedown, so it shares a lot of code.
 
 That said, upsidedown's analysis phase returns a flat array of KVRows.
 In contrast, fuego's analysis phase returns an analysis result struct,
@@ -49,13 +49,13 @@ Also, additional, persisted KV rows introduced by fuego would be...
 
     Notes on syntax for the following...
       The colon (':') character represents concatenation.
-      A tag-like <token> represents a single byte type code.
+      A tag-like <type> represents a single byte type code.
       A fieldId is a fixed length uint16.
       A 'lazy' is an example term, of variable length.
       A 0xff is a ByteSeparator (length 1 byte).
       A segId is a fixed length uint64 (not varint encoded).
       A recId is a fixed length uint64 (not varint encoded).
-      A docID is a fixed length uint64 (not varint encoded).
+      A docID is a variable length []byte for the document id.
 
     postings
       <postings>:fieldId:'lazy':0xff:segId:<recIds> -> [recId1, recId2, recId33]
@@ -68,9 +68,9 @@ Also, additional, persisted KV rows introduced by fuego would be...
     id lookups from internalId to externalId
       <id>:segId:recId -> docID
 
-      lookups from externalId to internalId would go through the
-        backIndexRow, where we'll enhance to also track the current
-        segId:recId info as part of each backIndexRow's value.
+      Lookups from externalId to internalId are handled via
+        backIndexRow lookups, which was enhanced to also track the
+        current segId:recId info as part of each backIndexRow.
 
       The id lookup rows are deleted synchronously with each batch,
         as part of the batch processing's mergeOldAndNew().
