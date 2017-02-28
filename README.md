@@ -12,33 +12,38 @@ fuego stores information following a lucene-like "segments" approach.
 So, it's somewhat like the firestorm prototype, but actually goes
 further in trying to use a classic postings format.
 
-For each incoming batch, fuego does...
+For each incoming batch, fuego performs the following...
 
-    assign a unique, ever-decreasing segId (uint64) which starts from MAX_UINT64,
-      which allows newer seg's to show up first in an ordered key-val store.
+    assigns a unique, ever-decreasing segId (uint64) for the batch,
+      where segId's start from MAX_UINT64, which allows newer seg's
+      to show up first in an ordered key-val store.
 
-    collate the analysis results into...
+    collates the analysis results into...
       var batchEntriesMap map[docID]*batchEntry
-      var batchEntriesArr [][]*batchEntry
+      var batchEntriesArr []*batchEntry
 
-    assign the recId's based on the position of each batchEntry
+    assigns recId's based on the position of each batchEntry
       in the batchEntriesArr.
 
-    fill a map[term][]TermFreqRow, where the arrays will be sorted by recId's.
+    a batchEntry is a struct that associates a recId with an AnalysisResult.
 
-    use that to construct the postings.
+    fill a map[fieldTerm][]TermFreqRow,
+      where the arrays will be sorted by recId's.
+
+    use that to construct the postings per fieldTerm.
 
     for each doc in the batch, also maintain any new FieldRows (global).
 
     add the posting rows, stored rows, docID lookup rows,
       and deletions from previous segments.
 
-We keep most of the KV row types from upsidedown, but also add the
-  segId:recId info to the value of each BackIndexRow.
+We keep most of the KV row types from upsidedown, with these changes...
 
-But, also no longer persist the TermFrequencyRow's -- the
-  TermFrequencyRow's are still used, but only temporarily, in-memory,
-  on the pathway between analysis to the KV store API.
+- We also add the segId:recId info to the value of each BackIndexRow.
+
+- We also no longer persist the TermFrequencyRow's -- the
+  TermFrequencyRow's are still used, but only as in-memory-only data
+  structures from the output of analysis.
 
 Also, additional, persisted KV rows introduced by fuego would be...
 
