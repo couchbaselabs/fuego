@@ -15,7 +15,6 @@
 package fuego
 
 import (
-	"bytes"
 	"encoding/binary"
 	"math"
 	"sync/atomic"
@@ -40,25 +39,13 @@ type batchEntry struct {
 	recId         uint64
 }
 
-type batchEntries []*batchEntry
-
-func (a batchEntries) Len() int {
-	return len(a)
-}
-
-func (a batchEntries) Swap(i, j int) {
-	a[i], a[j] = a[j], a[i]
-}
-
-func (a batchEntries) Less(i, j int) bool {
-	return bytes.Compare(a[i].analyzeResult.DocIDBytes, a[j].analyzeResult.DocIDBytes) < 0
-}
-
 // --------------------------------------------------
 
 type batchEntryTFR struct {
-	batchEntry     *batchEntry
-	termFreqRowIdx int // Index into batchEntry.analyzeResult.TermFreqRows array.
+	batchEntry *batchEntry
+
+	// Index into batchEntry.analyzeResult.TermFreqRows array.
+	termFreqRowIdx int
 }
 
 // --------------------------------------------------
@@ -78,58 +65,17 @@ func (udc *Fuego) batch(batch *index.Batch) (
 
 	analyzeResultCh := make(chan *AnalyzeAuxResult, len(batch.IndexOps))
 
-	var numUpdates int
-	var numPlainTextBytes uint64
+	go udc.analyzeBatch(batch, analyzeResultCh)
 
-	for _, doc := range batch.IndexOps {
-		if doc != nil {
-			numUpdates++
-			numPlainTextBytes += doc.NumPlainTextBytes()
-		}
-	}
-
-	go func() {
-		for _, doc := range batch.IndexOps {
-			if doc != nil {
-				AnalyzeAuxQueue <- &AnalyzeAuxReq{
-					Index:    udc,
-					Doc:      doc,
-					ResultCh: analyzeResultCh,
-				}
-			}
-		}
-	}()
-
-	docBackIndexRowErr := error(nil)
 	docBackIndexRowCh := make(chan *docBackIndexRow, len(batch.IndexOps))
+	docBackIndexRowErrCh := make(chan error)
 
 	udc.writeMutex.Lock()
 	defer udc.writeMutex.Unlock()
 
-	go func() { // Retrieve back index rows concurrent with analysis.
-		defer close(docBackIndexRowCh)
-
-		kvreader, err := udc.store.Reader()
-		if err != nil {
-			docBackIndexRowErr = err
-			return
-		}
-		defer kvreader.Close()
-
-		var tempBackIndexRow BackIndexRow
-
-		for docID, doc := range batch.IndexOps {
-			docIDBytes := []byte(docID)
-
-			backIndexRow, err := backIndexRowForDocID(kvreader, docIDBytes, &tempBackIndexRow)
-			if err != nil {
-				docBackIndexRowErr = err
-				return
-			}
-
-			docBackIndexRowCh <- &docBackIndexRow{docID, docIDBytes, doc, backIndexRow}
-		}
-	}()
+	// Retrieve back index rows concurrent with analysis.
+	go udc.fetchBatchBackIndexRows(batch,
+		docBackIndexRowCh, docBackIndexRowErrCh)
 
 	// The segId's decrease or drop downwards from MAX_UINT64,
 	// which allows newer/younger seg's to appear first in iterators.
@@ -138,32 +84,15 @@ func (udc *Fuego) batch(batch *index.Batch) (
 	currSegId := udc.lastUsedSegId
 
 	// Wait for analyze results.
-	batchEntriesPre := make([]batchEntry, len(batch.IndexOps)) // Prealloc'ed.
-	batchEntriesArr := make(batchEntries, 0, len(batch.IndexOps))
-	batchEntriesMap := make(map[string]*batchEntry, len(batch.IndexOps)) // Keyed by docID.
+	numUpdates, numPlainTextBytes := countBatchSize(batch)
 
-	var numBatchEntries int
-	var numTermFreqRows int
-
-	for numBatchEntries < numUpdates {
-		analyzeResult := <-analyzeResultCh
-
-		batchEntry := &batchEntriesPre[numBatchEntries]
-		numBatchEntries++
-
-		batchEntry.analyzeResult = analyzeResult
-		batchEntry.recId = uint64(numBatchEntries)
-
-		batchEntriesArr = append(batchEntriesArr, batchEntry)
-		batchEntriesMap[analyzeResult.DocID] = batchEntry
-
-		numTermFreqRows += len(analyzeResult.TermFreqRows)
-	}
+	batchEntriesArr, batchEntriesMap, numTermFreqRows :=
+		udc.waitForAnalyzeResults(numUpdates, analyzeResultCh)
 
 	close(analyzeResultCh)
 
 	// NOTE: We might consider sorting the batchEntriesArr by docID,
-	// ASC, in order to assign the recId's is the same sorted ordering
+	// ASC, in order to assign the recId's in the same sorted ordering
 	// as docID's, but we'll skip this for now until we figure out if
 	// there's a performance win.
 	//   sort.Sort(batchEntriesArr)
@@ -172,39 +101,13 @@ func (udc *Fuego) batch(batch *index.Batch) (
 
 	indexStart := time.Now()
 
-	// Fill the fieldTerms array and the fieldTermBatchEntryTFRs map.
-	fieldTerms := fieldTerms(nil)
-	fieldTermBatchEntryTFRs := map[fieldTerm][]*batchEntryTFR{}
-
-	batchEntryTFRPre := make([]batchEntryTFR, numTermFreqRows) // Prealloc'ed.
-	batchEntryTFRUsed := 0
-
-	for _, batchEntry := range batchEntriesArr {
-		for tfrIdx, tfr := range batchEntry.analyzeResult.TermFreqRows {
-			fieldTerm := fieldTerm{tfr.field, string(tfr.term)}
-
-			batchEntryTFR := &batchEntryTFRPre[batchEntryTFRUsed]
-			batchEntryTFRUsed += 1
-
-			batchEntryTFR.batchEntry = batchEntry
-			batchEntryTFR.termFreqRowIdx = tfrIdx
-
-			// We're bucketing or grouping by the fieldTerm's, but
-			// also keeping the overall ordering driven by the
-			// batchEntriesArr.
-			batchEntryTFRs := fieldTermBatchEntryTFRs[fieldTerm]
-			if batchEntryTFRs == nil {
-				fieldTerms = append(fieldTerms, fieldTerm)
-			}
-
-			fieldTermBatchEntryTFRs[fieldTerm] =
-				append(batchEntryTFRs, batchEntryTFR)
-		}
-	}
+	// Group the batchEntry's by their fieldTerm.
+	groupedByFieldTerm := groupByFieldTerms(batchEntriesArr, numTermFreqRows)
 
 	// NOTE: We might consider sorting the fieldTerms by field ASC,
 	// term ASC, but skipping this for now until we can figure out if
 	// there's a performance win.
+	//   fieldTerms := keysAsFieldTerms(groupedByFieldTerm)
 	//   sort.Sort(fieldTerms)
 
 	// Need a summary row update.
@@ -213,42 +116,7 @@ func (udc *Fuego) batch(batch *index.Batch) (
 	var deleteRowsAll [][]KVRow
 
 	// Add the postings.
-	addRows := make([]KVRow, 0, len(fieldTerms)*3)
-
-	for _, fieldTerm := range fieldTerms { // Sorted by field, term ASC.
-		batchEntryTFRs := fieldTermBatchEntryTFRs[fieldTerm]
-
-		recIds := make([]uint64, len(batchEntryTFRs))
-		freqNorms := make([]uint32, 2*len(batchEntryTFRs))
-		vectors := make([][]*TermVector, len(batchEntryTFRs))
-
-		i2 := 0
-		for i, batchEntryTFR := range batchEntryTFRs {
-			batchEntry := batchEntryTFR.batchEntry
-
-			recIds[i] = batchEntry.recId
-
-			tfr := batchEntry.analyzeResult.TermFreqRows[batchEntryTFR.termFreqRowIdx]
-
-			freqNorms[i2] = uint32(tfr.freq)
-			freqNorms[i2+1] = math.Float32bits(tfr.norm)
-			i2 += 2
-
-			vectors[i] = tfr.vectors
-		}
-
-		termBytes := []byte(fieldTerm.term)
-
-		addRows = append(addRows, NewPostingRecIdsRow(
-			fieldTerm.field, termBytes, currSegId, recIds))
-
-		addRows = append(addRows, NewPostingFreqNormsRow(
-			fieldTerm.field, termBytes, currSegId, freqNorms))
-
-		addRows = append(addRows, NewPostingVecsRowFromVectors(
-			fieldTerm.field, termBytes, currSegId, vectors))
-	}
-
+	addRows := convertToPostings(currSegId, groupedByFieldTerm)
 	if len(addRows) > 0 {
 		addRowsAll = append(addRowsAll, addRows)
 	}
@@ -258,13 +126,12 @@ func (udc *Fuego) batch(batch *index.Batch) (
 		var updateRows []KVRow
 		var deleteRows []KVRow
 
-		for internalKey, internalValue := range batch.InternalOps {
-			if internalValue == nil {
-				deleteInternalRow := NewInternalRow([]byte(internalKey), nil)
-				deleteRows = append(deleteRows, deleteInternalRow)
+		for internalK, internalV := range batch.InternalOps {
+			internalRow := NewInternalRow([]byte(internalK), internalV)
+			if internalV != nil {
+				updateRows = append(updateRows, internalRow)
 			} else {
-				updateInternalRow := NewInternalRow([]byte(internalKey), internalValue)
-				updateRows = append(updateRows, updateInternalRow)
+				deleteRows = append(deleteRows, internalRow)
 			}
 		}
 
@@ -277,66 +144,14 @@ func (udc *Fuego) batch(batch *index.Batch) (
 	}
 
 	// Process back index rows as they arrive.
-	docsAdded := uint64(0)
-	docsDeleted := uint64(0)
+	dictionaryDeltas, docsAdded, docsDeleted,
+		addRowsAll, updateRowsAll, deleteRowsAll, segDirtiness :=
+		udc.processBatchBackIndexRows(currSegId, docBackIndexRowCh,
+			batchEntriesMap, addRowsAll, updateRowsAll, deleteRowsAll)
 
-	dictionaryDeltas := make(map[string]int64) // Keyed by dictionaryRow key.
-
-	segDirtiness = map[uint64]int64{} // Keyed by segId.
-	segDirtiness[currSegId] += 0      // Ensure an entry for currSegId.
-
-	addRows = []KVRow(nil)
-
-	keyBuf := GetRowBuffer()
-
-	for dbir := range docBackIndexRowCh {
-		if dbir.doc == nil {
-			if dbir.backIndexRow != nil { // A deletion.
-				addRows = append(addRows,
-					NewDeletionRow(dbir.backIndexRow.segId, dbir.backIndexRow.recId))
-
-				var deleteRows []KVRow
-
-				deleteRows, keyBuf = udc.deleteSingle(
-					dbir.docIDBytes, dbir.backIndexRow, dictionaryDeltas, keyBuf)
-				if len(deleteRows) > 0 {
-					deleteRowsAll = append(deleteRowsAll, deleteRows)
-				}
-
-				docsDeleted++
-			}
-		} else {
-			var aRows, uRows, dRows []KVRow
-
-			aRows, uRows, dRows, keyBuf = udc.mergeOldAndNew(currSegId,
-				dbir.backIndexRow, batchEntriesMap[dbir.docID],
-				dictionaryDeltas, keyBuf)
-			if len(aRows) > 0 {
-				addRowsAll = append(addRowsAll, aRows)
-			}
-			if len(uRows) > 0 {
-				updateRowsAll = append(updateRowsAll, uRows)
-			}
-			if len(dRows) > 0 {
-				deleteRowsAll = append(deleteRowsAll, dRows)
-			}
-
-			if dbir.backIndexRow != nil {
-				segDirtiness[dbir.backIndexRow.segId] += 1
-			} else {
-				docsAdded++
-			}
-		}
-	}
-
-	PutRowBuffer(keyBuf)
-
+	docBackIndexRowErr := <-docBackIndexRowErrCh
 	if docBackIndexRowErr != nil {
 		return nil, docBackIndexRowErr
-	}
-
-	if len(addRows) > 0 {
-		addRowsAll = append(addRowsAll, addRows)
 	}
 
 	// start a writer for this batch
@@ -345,7 +160,8 @@ func (udc *Fuego) batch(batch *index.Batch) (
 		return nil, err
 	}
 
-	err = udc.batchRows(kvwriter, addRowsAll, updateRowsAll, deleteRowsAll, dictionaryDeltas)
+	err = udc.batchRows(kvwriter,
+		addRowsAll, updateRowsAll, deleteRowsAll, dictionaryDeltas)
 
 	cerr := kvwriter.Close()
 	if cerr != nil && err == nil {
@@ -656,4 +472,243 @@ func (udc *Fuego) mergeOldAndNew(segId uint64,
 	}
 
 	return addRows, updateRows, deleteRows, keyBuf
+}
+
+// -------------------------------------------------------
+
+func countBatchSize(batch *index.Batch) (
+	numUpdates int, numPlainTextBytes uint64) {
+	for _, doc := range batch.IndexOps {
+		if doc != nil {
+			numUpdates++
+			numPlainTextBytes += doc.NumPlainTextBytes()
+		}
+	}
+
+	return numUpdates, numPlainTextBytes
+}
+
+// -------------------------------------------------------
+
+func (udc *Fuego) analyzeBatch(batch *index.Batch,
+	analyzeResultCh chan *AnalyzeAuxResult) {
+	for _, doc := range batch.IndexOps {
+		if doc != nil {
+			AnalyzeAuxQueue <- &AnalyzeAuxReq{
+				Index:    udc,
+				Doc:      doc,
+				ResultCh: analyzeResultCh,
+			}
+		}
+	}
+}
+
+func (udc *Fuego) waitForAnalyzeResults(numUpdates int,
+	analyzeResultCh chan *AnalyzeAuxResult) (
+	[]*batchEntry, map[string]*batchEntry, int) {
+	// Prealloc'ed.
+	batchEntriesPre := make([]batchEntry, numUpdates)
+
+	// The batchEntry.recId will be the 1-based based position of the
+	// batchEntry in the batchEntriesArr.
+	batchEntriesArr := make([]*batchEntry, numUpdates)
+
+	// Keyed by docID.
+	batchEntriesMap := make(map[string]*batchEntry, numUpdates)
+
+	var numBatchEntries int
+	var numTermFreqRows int
+
+	for numBatchEntries < numUpdates {
+		analyzeResult := <-analyzeResultCh
+
+		batchEntry := &batchEntriesPre[numBatchEntries]
+		numBatchEntries++
+
+		batchEntry.analyzeResult = analyzeResult
+		batchEntry.recId = uint64(numBatchEntries)
+
+		batchEntriesArr[len(batchEntriesArr)] = batchEntry
+		batchEntriesMap[analyzeResult.DocID] = batchEntry
+
+		numTermFreqRows += len(analyzeResult.TermFreqRows)
+	}
+
+	return batchEntriesArr, batchEntriesMap, numTermFreqRows
+}
+
+// -------------------------------------------------------
+
+func groupByFieldTerms(batchEntriesArr []*batchEntry,
+	numTermFreqRows int) map[fieldTerm][]*batchEntryTFR {
+	groupedByFieldTerm := map[fieldTerm][]*batchEntryTFR{}
+
+	batchEntryTFRPre := make([]batchEntryTFR, numTermFreqRows) // Prealloc'ed.
+	batchEntryTFRUsed := 0
+
+	for _, batchEntry := range batchEntriesArr {
+		for tfrIdx, tfr := range batchEntry.analyzeResult.TermFreqRows {
+			fieldTerm := fieldTerm{tfr.field, string(tfr.term)}
+
+			batchEntryTFR := &batchEntryTFRPre[batchEntryTFRUsed]
+			batchEntryTFRUsed += 1
+
+			batchEntryTFR.batchEntry = batchEntry
+			batchEntryTFR.termFreqRowIdx = tfrIdx
+
+			// We're bucketing or grouping by the fieldTerm's, but
+			// also keeping the overall ordering stable by being
+			// driven by ordering of the batchEntriesArr.
+			groupedByFieldTerm[fieldTerm] =
+				append(groupedByFieldTerm[fieldTerm], batchEntryTFR)
+		}
+	}
+
+	return groupedByFieldTerm
+}
+
+// -------------------------------------------------------
+
+func convertToPostings(currSegId uint64,
+	groupedByFieldTerm map[fieldTerm][]*batchEntryTFR) []KVRow {
+	rv := make([]KVRow, 0, len(groupedByFieldTerm)*3)
+
+	for fieldTerm, batchEntryTFRs := range groupedByFieldTerm {
+		recIds := make([]uint64, len(batchEntryTFRs))
+		freqNorms := make([]uint32, 2*len(batchEntryTFRs))
+		vectors := make([][]*TermVector, len(batchEntryTFRs))
+
+		i2 := 0
+		for i, batchEntryTFR := range batchEntryTFRs {
+			batchEntry := batchEntryTFR.batchEntry
+
+			recIds[i] = batchEntry.recId
+
+			tfrIdx := batchEntryTFR.termFreqRowIdx
+			tfr := batchEntry.analyzeResult.TermFreqRows[tfrIdx]
+
+			freqNorms[i2] = uint32(tfr.freq)
+			freqNorms[i2+1] = math.Float32bits(tfr.norm)
+			i2 += 2
+
+			vectors[i] = tfr.vectors
+		}
+
+		termBytes := []byte(fieldTerm.term)
+
+		rv = append(rv, NewPostingRecIdsRow(
+			fieldTerm.field, termBytes, currSegId, recIds))
+
+		rv = append(rv, NewPostingFreqNormsRow(
+			fieldTerm.field, termBytes, currSegId, freqNorms))
+
+		rv = append(rv, NewPostingVecsRowFromVectors(
+			fieldTerm.field, termBytes, currSegId, vectors))
+	}
+
+	return rv
+}
+
+// -------------------------------------------------------
+
+func (udc *Fuego) fetchBatchBackIndexRows(batch *index.Batch,
+	rowCh chan *docBackIndexRow, errCh chan error) {
+	defer close(errCh)
+	defer close(rowCh)
+
+	kvreader, err := udc.store.Reader()
+	if err != nil {
+		errCh <- err
+		return
+	}
+	defer kvreader.Close()
+
+	var tmpRow BackIndexRow
+
+	for docID, doc := range batch.IndexOps {
+		docIDBytes := []byte(docID)
+
+		bir, err := backIndexRowForDocID(kvreader, docIDBytes, &tmpRow)
+		if err != nil {
+			errCh <- err
+			return
+		}
+
+		rowCh <- &docBackIndexRow{docID, docIDBytes, doc, bir}
+	}
+}
+
+// -------------------------------------------------------
+
+func (udc *Fuego) processBatchBackIndexRows(
+	currSegId uint64,
+	docBackIndexRowCh chan *docBackIndexRow,
+	batchEntriesMap map[string]*batchEntry,
+	addRowsAll [][]KVRow,
+	updateRowsAll [][]KVRow,
+	deleteRowsAll [][]KVRow) (
+	dictionaryDeltas map[string]int64,
+	docsAdded uint64,
+	docsDeleted uint64,
+	addRowsAllOut [][]KVRow,
+	updateRowsAllOut [][]KVRow,
+	deleteRowsAllOut [][]KVRow,
+	segDirtiness map[uint64]int64) {
+	var addRows []KVRow
+
+	dictionaryDeltas = make(map[string]int64) // Keyed by dictionaryRow key.
+
+	segDirtiness = map[uint64]int64{} // Keyed by segId.
+	segDirtiness[currSegId] += 0      // Ensure an entry for currSegId.
+
+	keyBuf := GetRowBuffer()
+
+	for dbir := range docBackIndexRowCh {
+		if dbir.doc == nil {
+			if dbir.backIndexRow != nil { // A deletion.
+				addRows = append(addRows,
+					NewDeletionRow(dbir.backIndexRow.segId, dbir.backIndexRow.recId))
+
+				var deleteRows []KVRow
+
+				deleteRows, keyBuf = udc.deleteSingle(
+					dbir.docIDBytes, dbir.backIndexRow, dictionaryDeltas, keyBuf)
+				if len(deleteRows) > 0 {
+					deleteRowsAll = append(deleteRowsAll, deleteRows)
+				}
+
+				docsDeleted++
+			}
+		} else {
+			var aRows, uRows, dRows []KVRow
+
+			aRows, uRows, dRows, keyBuf = udc.mergeOldAndNew(currSegId,
+				dbir.backIndexRow, batchEntriesMap[dbir.docID],
+				dictionaryDeltas, keyBuf)
+			if len(aRows) > 0 {
+				addRowsAll = append(addRowsAll, aRows)
+			}
+			if len(uRows) > 0 {
+				updateRowsAll = append(updateRowsAll, uRows)
+			}
+			if len(dRows) > 0 {
+				deleteRowsAll = append(deleteRowsAll, dRows)
+			}
+
+			if dbir.backIndexRow != nil {
+				segDirtiness[dbir.backIndexRow.segId] += 1
+			} else {
+				docsAdded++
+			}
+		}
+	}
+
+	PutRowBuffer(keyBuf)
+
+	if len(addRows) > 0 {
+		addRowsAll = append(addRowsAll, addRows)
+	}
+
+	return dictionaryDeltas, docsAdded, docsDeleted,
+		addRowsAll, updateRowsAll, deleteRowsAll, segDirtiness
 }

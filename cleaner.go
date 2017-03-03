@@ -234,10 +234,8 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
 	// collected "Cur" info to the "NewPosting" info.
 	//
 	// When visitor sees a field/term ended, call flushFieldTerm()
-	visitor := func(fieldId uint16, term []byte,
-		sp *segPostings, segId uint64,
-		recIdx int, recId uint64, alive bool) (
-		keepGoing bool, err error) {
+	visitor := func(fieldId uint16, term []byte, sp *segPostings, segId uint64,
+		recIdx int, recId uint64, alive bool) error {
 		if recIdx >= 0 {
 			udc.Logf("  visitor, fieldId: %d, term: %s,"+
 				" segId: %x, recIdx: %d, recId: %x, alive: %t\n",
@@ -260,7 +258,7 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
 
 					docIDBytes, err := kvreader.Get(buf[:bufUsed])
 					if err != nil {
-						return false, err
+						return err
 					}
 
 					if len(docIDBytes) > 0 {
@@ -269,7 +267,7 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
 						backIndexRow, err :=
 							backIndexRowForDocID(kvreader, docIDBytes, nil)
 						if err != nil {
-							return false, err
+							return err
 						}
 
 						udc.Logf("   backIndexRow: #%v, docIDBytes: %s\n",
@@ -297,7 +295,7 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
 				vectorsEncoded, err :=
 					sp.rowVecs.TermFieldVectorsEncoded(recIdx)
 				if err != nil {
-					return false, err
+					return err
 				}
 
 				vectorsCur = append(vectorsCur, vectorsEncoded)
@@ -353,7 +351,7 @@ func (udc *Fuego) CleanFieldsLOCKED(kvreader store.KVReader,
 			}
 		}
 
-		return true, nil
+		return nil
 	}
 
 	for _, fieldId := range fieldIds {
@@ -393,9 +391,7 @@ type segVisitor struct {
 }
 
 type segVisitorFunc func(fieldId uint16, term []byte,
-	sp *segPostings, segId uint64,
-	recIdx int, recId uint64, alive bool) (
-	keepGoing bool, err error)
+	sp *segPostings, segId uint64, recIdx int, recId uint64, alive bool) error
 
 func (c *segVisitor) Reset() {
 	if c.postingsIter != nil {
@@ -428,7 +424,10 @@ func (c *segVisitor) Visit(kvreader store.KVReader,
 		if _, wanted := c.onlySegIds[segId]; wanted {
 			term := sp.rowRecIds.term
 
-			visitor(fieldId, term, sp, segId, -1, 0, true)
+			err := visitor(fieldId, term, sp, segId, -1, 0, true)
+			if err != nil {
+				return err
+			}
 
 			recIdx := 0
 
@@ -440,9 +439,8 @@ func (c *segVisitor) Visit(kvreader store.KVReader,
 					return err
 				}
 
-				keepGoing, err :=
-					visitor(fieldId, term, sp, segId, recIdx, recId, !wasDeleted)
-				if !keepGoing || err != nil {
+				err = visitor(fieldId, term, sp, segId, recIdx, recId, !wasDeleted)
+				if err != nil {
 					return err
 				}
 
@@ -451,7 +449,10 @@ func (c *segVisitor) Visit(kvreader store.KVReader,
 				}
 			}
 
-			visitor(fieldId, term, sp, segId, -1, 0, false)
+			err = visitor(fieldId, term, sp, segId, -1, 0, false)
+			if err != nil {
+				return err
+			}
 		}
 
 		c.nextSegPostings()
