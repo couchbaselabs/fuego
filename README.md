@@ -3,34 +3,39 @@ How's fuego different than bleve's upsidedown indexing approach?
 First off, fuego is a fork of upsidedown, so it shares a lot of code.
 
 That said, upsidedown's analysis phase returns a flat array of KVRows.
-In contrast, fuego's analysis phase returns an analysis result struct,
-so that later codepaths can access the resulting FieldRows,
-TermFrequenceRows and StoredRows, without having to loop through an
-entire flat array of KVRows.
 
-fuego stores information following a lucene-like "segments" approach.
-So, it's somewhat like the firestorm prototype, but actually goes
-further in trying to use a classic postings format.
+In contrast, fuego's analysis phase returns an analysis result struct
+(AnalysisAuxResult), so that later codepaths can access the resulting
+rows (FieldRows, TermFrequencyRows, StoredRows) already grouped by
+type, without having to further loop through an entire flat array of
+KVRows.
 
-For each incoming batch, fuego performs the following...
+fuego also stores information following a lucene-like "segments"
+approach, along with a classic postings format.
 
-    assigns a unique, ever-decreasing segId (uint64) for the batch,
-      where segId's start from MAX_UINT64, which allows newer seg's
-      to show up first in an ordered key-val store.
+To process each incoming batch of documents, fuego performs the
+following (in batch.go)...
+
+    assigns a unique, ever _decreasing_ segId (uint64) for the batch.
+      That is, segId's start from MAX_UINT64, which allows newer seg's
+      to show up earlier in a key-val store ordered by key.
 
     collates the analysis results into...
       var batchEntriesMap map[docID]*batchEntry
       var batchEntriesArr []*batchEntry
 
-    assigns recId's based on the position of each batchEntry
-      in the batchEntriesArr.
+    assigns recId's based on the (1-based) position of
+      each batchEntry in the batchEntriesArr.
 
-    a batchEntry is a struct that associates a recId with an AnalysisResult.
+    a batchEntry is a struct that associates an AnalysisAuxResult
+      with its unique recId.
 
-    fill a map[fieldTerm][]TermFreqRow,
-      where the arrays will be sorted by recId's.
+    fills a map[fieldTerm][]TermFrequencyRow,
+      where the []TermFrequencyRow arrays will be ordered
+      by increasing recId.
 
-    use that to construct the postings per fieldTerm.
+    use that map[fieldTerm][]TermFrequencyRow to construct
+      the postings per fieldTerm.
 
     for each doc in the batch, also maintain any new FieldRows (global).
 
