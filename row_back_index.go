@@ -166,30 +166,37 @@ func backIndexRowForDocID(kvreader store.KVReader, docIDBytes []byte,
 	if tmpRow == nil {
 		tmpRow = &BackIndexRow{}
 	}
-	tmpRow.docID = docIDBytes
 
 	keyBuf := GetRowBuffer()
+
+	value, err := backIndexRowValueForDocID(kvreader, docIDBytes, keyBuf, tmpRow)
+	if err != nil {
+		PutRowBuffer(keyBuf)
+		return nil, err
+	}
+
+	rv, err := NewBackIndexRowKV(keyBuf[:tmpRow.KeySize()], value)
+
+	PutRowBuffer(keyBuf)
+
+	return rv, err
+}
+
+func backIndexRowValueForDocID(kvreader store.KVReader, docIDBytes []byte,
+	keyBuf []byte, tmpRow *BackIndexRow) ([]byte, error) {
+	if tmpRow == nil {
+		tmpRow = &BackIndexRow{}
+	}
+	tmpRow.docID = docIDBytes
+
 	if tmpRow.KeySize() > len(keyBuf) {
 		keyBuf = make([]byte, 2*tmpRow.KeySize())
 	}
 
 	keySize, err := tmpRow.KeyTo(keyBuf)
 	if err != nil {
-		PutRowBuffer(keyBuf)
 		return nil, err
 	}
 
-	value, err := kvreader.Get(keyBuf[:keySize])
-	if err != nil {
-		PutRowBuffer(keyBuf)
-		return nil, err
-	}
-	if value == nil {
-		PutRowBuffer(keyBuf)
-		return nil, nil
-	}
-
-	rv, err := NewBackIndexRowKV(keyBuf[:keySize], value)
-	PutRowBuffer(keyBuf)
-	return rv, err
+	return kvreader.Get(keyBuf[:keySize])
 }

@@ -1328,7 +1328,11 @@ func TestIndexDocumentFieldTerms(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	fieldTerms, err := indexReader.DocumentFieldTerms(internalId, []string{"name", "title"})
+	gotFieldTerms := index.FieldTerms{}
+	err = indexReader.DocumentVisitFieldTerms(internalId, []string{"name", "title"},
+		func(field string, term []byte) {
+			gotFieldTerms[field] = append(gotFieldTerms[field], string(term))
+		})
 	if err != nil {
 		t.Error(err)
 	}
@@ -1336,8 +1340,8 @@ func TestIndexDocumentFieldTerms(t *testing.T) {
 		"name":  []string{"test"},
 		"title": []string{"mister"},
 	}
-	if !reflect.DeepEqual(fieldTerms, expectedFieldTerms) {
-		t.Errorf("expected field terms: %#v, got: %#v", expectedFieldTerms, fieldTerms)
+	if !reflect.DeepEqual(gotFieldTerms, expectedFieldTerms) {
+		t.Errorf("expected field terms: %#v, got: %#v", expectedFieldTerms, gotFieldTerms)
 	}
 }
 

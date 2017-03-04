@@ -130,8 +130,8 @@ func decodeFieldType(typ byte, name string, pos []uint64, value []byte) document
 	return nil
 }
 
-func (i *IndexReader) DocumentFieldTerms(internalId index.IndexInternalID, fields []string) (
-	index.FieldTerms, error) {
+func (i *IndexReader) DocumentFieldTerms(internalId index.IndexInternalID,
+	fields []string) (index.FieldTerms, error) {
 	docIDBytes, err := i.ExternalIDBytes(internalId)
 	if err != nil {
 		return nil, err
@@ -142,9 +142,7 @@ func (i *IndexReader) DocumentFieldTerms(internalId index.IndexInternalID, field
 		return nil, err
 	}
 
-	rv := make(index.FieldTerms, len(fields))
 	fieldsMap := make(map[uint16]string, len(fields))
-
 	for _, f := range fields {
 		id, ok := i.index.fieldCache.FieldNamed(f, false)
 		if ok {
@@ -152,6 +150,7 @@ func (i *IndexReader) DocumentFieldTerms(internalId index.IndexInternalID, field
 		}
 	}
 
+	rv := make(index.FieldTerms, len(fields))
 	for _, entry := range back.termEntries {
 		if field, ok := fieldsMap[uint16(*entry.Field)]; ok {
 			rv[field] = append(rv[field], *entry.Term)
@@ -159,6 +158,22 @@ func (i *IndexReader) DocumentFieldTerms(internalId index.IndexInternalID, field
 	}
 
 	return rv, nil
+}
+
+func (i *IndexReader) DocumentVisitFieldTerms(id index.IndexInternalID,
+	fields []string, visitor index.DocumentFieldTermVisitor) error {
+	fieldTerms, err := i.DocumentFieldTerms(id, fields)
+	if err != nil {
+		return err
+	}
+
+	for field, terms := range fieldTerms {
+		for _, term := range terms {
+			visitor(field, []byte(term))
+		}
+	}
+
+	return nil
 }
 
 func (i *IndexReader) Fields() (fields []string, err error) {
