@@ -644,15 +644,10 @@ func (udc *Fuego) processBatchBackIndexRows(
 	currSegId uint64,
 	docBackIndexRowCh chan *docBackIndexRow,
 	batchEntriesMap map[string]*batchEntry,
-	addRowsAll [][]KVRow,
-	updateRowsAll [][]KVRow,
-	deleteRowsAll [][]KVRow) (
+	addRowsAll, updateRowsAll, deleteRowsAll [][]KVRow) (
 	dictionaryDeltas map[string]int64,
-	docsAdded uint64,
-	docsDeleted uint64,
-	addRowsAllOut [][]KVRow,
-	updateRowsAllOut [][]KVRow,
-	deleteRowsAllOut [][]KVRow,
+	docsAdded, docsDeleted uint64,
+	addRowsAllOut, updateRowsAllOut, deleteRowsAllOut [][]KVRow,
 	segDirtiness map[uint64]int64) {
 	var addRows []KVRow
 
